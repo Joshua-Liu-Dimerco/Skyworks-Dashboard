@@ -17,7 +17,7 @@ from datetime import date, timedelta, datetime
 # CONFIG
 # ─────────────────────────────────────────────
 st.set_page_config(
-    page_title="OP&CS 作業排程",
+    page_title="SKYWORKS OP&CS 作業排程",
     page_icon="📦",
     layout="wide",
     initial_sidebar_state="expanded",
