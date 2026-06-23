@@ -17,7 +17,7 @@ from datetime import date, timedelta, datetime
 # CONFIG
 # ─────────────────────────────────────────────
 st.set_page_config(
-    page_title="SKYWORKS OP&CS 作業",
+    page_title="OP&CS 作業排程",
     page_icon="📦",
     layout="wide",
     initial_sidebar_state="expanded",
@@ -221,15 +221,26 @@ def process_data(df: pd.DataFrame):
 
     df["priority"] = df.apply(priority, axis=1)
 
-    # ── KPI bucket — based on effective dispatch date ──
-    def kpi_bucket(days):
+    # ── KPI bucket ──
+    # SP=X orders: always "待核准出貨" (waiting for authorization, date irrelevant)
+    # Others: based on effective dispatch date
+    def kpi_bucket_fn(row):
+        sp = str(row.get("Special Processing", "")).strip()
+        if sp == "X":
+            return "待核准出貨"
+        days = row["days_to_effective"]
         if days <= 0:   return "今日必出"
         if days == 1:   return "明天"
         if days <= 4:   return "本週"
         if days <= 11:  return "下週"
         return "中長期"
 
-    df["kpi_bucket"] = df["days_to_effective"].apply(kpi_bucket)
+    df["kpi_bucket"] = df.apply(kpi_bucket_fn, axis=1)
+
+    # ── X order packing deadline (for planning) ──
+    # Even though SP=X is awaiting auth, CS needs to know by when to have them PACKED.
+    # We use effective_ship_date as the "should be packed by" date.
+    # This column is already computed above (effective_ship_date).
 
     # ── Customer display: INCOTERMS-CUSTOMER NAME ──
     if incoterms_col and incoterms_col in df.columns:
@@ -254,7 +265,7 @@ def process_data(df: pd.DataFrame):
 # SIDEBAR
 # ─────────────────────────────────────────────
 with st.sidebar:
-    st.markdown("## 📦 SKYWORKS OP&CS 作業")
+    st.markdown("## 📦 OP&CS 作業排程")
     st.markdown("---")
 
     page = st.radio(
@@ -336,7 +347,7 @@ if page == "📊 Dashboard":
 
     c1, c2 = st.columns([3, 1])
     with c1:
-        st.markdown("## SKYWORKS OP&CS 作業")
+        st.markdown("## OP&CS 作業排程")
     with c2:
         st.markdown(f"**{wd_label} 星期{wd_cn}** · {today}")
 
@@ -486,6 +497,92 @@ if page == "📊 Dashboard":
 
     st.divider()
 
+    # ── Special Processing = X 專區 ──
+    st.markdown("#### ⚠️ Special Processing = X — 待核准出貨分析")
+
+    x_df = df[df["Special Processing"].astype(str).str.strip() == "X"].copy()
+    x_total = len(x_df)
+    box_col_x = find_col(df, "件數", "box", "carton", "qty")
+    x_boxes   = int(x_df[box_col_x].sum()) if box_col_x else 0
+
+    if x_total == 0:
+        st.success("目前無 Special Processing = X 的訂單")
+    else:
+        # Summary metrics
+        xm1, xm2, xm3, xm4 = st.columns(4)
+        x_already_packed = len(x_df[x_df["work_status"] == "已包待出_X"])
+        x_need_pack      = len(x_df[x_df["work_status"] == "已撿待包"])
+        x_not_picked     = len(x_df[x_df["work_status"] == "未撿貨"])
+        x_crsd_past      = len(x_df[x_df["days_to_kpi"] <= 0])
+
+        for col_x, lbl, val, color, sub in [
+            (xm1, "X 總計",       x_total,          "#791F1F", f"{x_boxes} boxes"),
+            (xm2, "已包待授權",   x_already_packed,  "#A32D2D", "SP=X · Packing=C"),
+            (xm3, "需包裝 (已撿)", x_need_pack,      "#854F0B", "已撿待包"),
+            (xm4, "需備貨 (未撿)", x_not_picked,     "#3B6D11", "未撿貨"),
+        ]:
+            with col_x:
+                st.markdown(
+                    f'<div style="border-left:4px solid {color};padding:8px 12px;'
+                    f'background:#fafafa;border-radius:4px;">'
+                    f'<div style="font-size:11px;color:{color};font-weight:600;">{lbl}</div>'
+                    f'<div style="font-size:24px;font-weight:600;color:{color};">{val}</div>'
+                    f'<div style="font-size:10px;color:#888;">{sub}</div></div>',
+                    unsafe_allow_html=True,
+                )
+
+        st.markdown("")
+
+        # X order timeline table: CRSD / DN Created / dispatch_rule / effective_ship_date / work_status
+        dn_col_x   = find_col(df, "delivery")
+        sp_col_x   = find_col(df, "shipping point", "ship. pt")
+        x_show_cols = [c for c in [
+            sp_col_x, dn_col_x, "customer_display",
+            "New CRSD", "DN Created Date/Time",
+            "effective_ship_date", "dispatch_rule_display",
+            "work_status", "priority",
+            box_col_x,
+        ] if c and c in x_df.columns]
+        seen_x = set()
+        x_show_cols = [c for c in x_show_cols if not (c in seen_x or seen_x.add(c))]
+
+        x_sorted = x_df.sort_values(["days_to_kpi", "customer_display"])[x_show_cols]
+
+        def style_x(row):
+            ws = row.get("work_status", "")
+            if ws == "已包待出_X":   return ["background-color:#FCEBEB"] * len(row)
+            if ws == "已撿待包":      return ["background-color:#FAEEDA"] * len(row)
+            if ws == "未撿貨":        return ["background-color:#EAF3DE"] * len(row)
+            return [""] * len(row)
+
+        st.caption(
+            "📌 KPI Bucket 一律為「待核准出貨」｜effective_ship_date = 依 dispatch rule 最近可出日"
+        )
+        st.dataframe(x_sorted.style.apply(style_x, axis=1),
+                     use_container_width=True, height=320)
+
+        # X by customer summary
+        with st.expander("X 訂單客戶彙總", expanded=False):
+            x_agg = (
+                x_df.groupby("customer_display")
+                .agg(
+                    DNs=("customer_display", "count"),
+                    Min_CRSD=("New CRSD", "min"),
+                    Max_CRSD=("New CRSD", "max"),
+                    Earliest_Ship=("effective_ship_date", "min"),
+                    Dispatch=("dispatch_rule_display", lambda s: s.mode()[0] if not s.empty else ""),
+                    Stage=("work_status", lambda s: ", ".join(s.unique()[:3])),
+                )
+                .sort_values("Min_CRSD")
+                .reset_index()
+            )
+            if box_col_x:
+                x_agg_b = x_df.groupby("customer_display")[box_col_x].sum().rename("Boxes")
+                x_agg = x_agg.merge(x_agg_b, on="customer_display", how="left")
+            st.dataframe(x_agg, use_container_width=True)
+
+    st.divider()
+
     # ── Shipping Point breakdown ──
     st.markdown("#### 🏭 Shipping Point 分佈")
     sp_col = find_col(df, "shipping point", "ship. pt")
@@ -514,7 +611,7 @@ elif page == "📋 Raw Data":
         with fc2:
             sp_options = sorted(df[sp_col].dropna().unique()) if sp_col else []
             sel_sp     = st.multiselect("Shipping Point", options=sp_options, default=[])
-            sel_bucket = st.multiselect("KPI 區間", options=["今日必出","明天","本週","下週","中長期"], default=[])
+            sel_bucket = st.multiselect("KPI 區間", options=["今日必出","明天","本週","下週","中長期","待核准出貨"], default=[])
 
         with fc3:
             sel_cust     = st.multiselect("客戶", options=sorted(df["customer_display"].dropna().unique()), default=[])
@@ -657,7 +754,7 @@ elif page == "🔍 Detail View":
 
 # ══════════════════════════════════════════════
 # PAGE 4 — CS PRINT LIST
-# ══════════════════════════════════════════════
+# ══════════════════════════════════════════
 elif page == "🖨 CS Print List":
 
     st.markdown("## 🖨 CS 出貨清單 — 依 Dispatch 規則")
@@ -666,16 +763,14 @@ elif page == "🖨 CS Print List":
     today_w = WEEKDAY_MAP.get(today.weekday(), "")
     wd_cn   = {"W1":"一","W2":"二","W3":"三","W4":"四","W5":"五"}.get(today_w, "")
 
-    # ── Column detection ──
-    sp_col      = find_col(df, "shipping point", "ship. pt")
-    dn_col      = find_col(df, "delivery")
-    etd_col     = find_col(df, "etd")
-    box_col     = find_col(df, "件數", "box", "carton", "qty")
-    route_col   = find_col(df, "route")
-    dst_col     = find_col(df, "ship to country", "ship-to country", "dst", "destination")
-    acct_col    = find_col(df, "delivery account", "account")
+    sp_col    = find_col(df, "shipping point", "ship. pt")
+    dn_col    = find_col(df, "delivery")
+    etd_col   = find_col(df, "etd")
+    box_col   = find_col(df, "件數", "box", "carton", "qty")
+    route_col = find_col(df, "route")
+    dst_col   = find_col(df, "ship to country", "ship-to country", "dst", "destination")
+    acct_col  = find_col(df, "delivery account", "account")
 
-    # ── Controls ──
     ct1, ct2 = st.columns([2, 1])
     with ct1:
         show_mode = st.radio(
@@ -686,7 +781,6 @@ elif page == "🖨 CS Print List":
     with ct2:
         show_x_warning = st.checkbox("包含 X 待授權（標注警示）", value=True)
 
-    # ── Filter ──
     if show_mode == "今日 Dispatch 可出":
         mask_p = df["dispatch_today"] & (df["work_status"] == "已包待出_GO")
         title  = f"今日 ({today_w} 星期{wd_cn}) Dispatch — GO 可出"
@@ -703,7 +797,6 @@ elif page == "🖨 CS Print List":
     else:
         print_df = df[mask_p].copy()
 
-    # ── Sort ──
     p_order = {"P1": 0, "P2": 1, "P3": 2, "P4": 3}
     print_df["_p_order"] = print_df["priority"].map(p_order).fillna(9)
     print_df = print_df.sort_values(["_p_order", "days_to_kpi", "customer_display"])
@@ -711,10 +804,6 @@ elif page == "🖨 CS Print List":
     st.markdown(f"### {title}")
     st.caption(f"共 {len(print_df)} 筆 ｜ 產生時間：{datetime.now().strftime('%Y-%m-%d %H:%M')}")
 
-    # ── Columns: Delivery / SP / ETD / DN Created / New CRSD / customer_display /
-    #            件數 / ROUTE / Ship To Country / Delivery Account /
-    #            work_status / priority / dispatch_rule_display / SP / effective_ship_date
-    # NOTE: original "Ship To Customer" and "Incoterms" columns removed (merged into customer_display)
     candidate_cols = [
         dn_col, sp_col, etd_col, "DN Created Date/Time", "New CRSD",
         "customer_display",
@@ -728,7 +817,6 @@ elif page == "🖨 CS Print List":
         if c and c in print_df.columns and not (c in seen or seen.add(c))
     ]
 
-    # ── Styled table ──
     def style_print(row):
         ws = row.get("work_status", "")
         if ws == "已包待出_X":
@@ -744,7 +832,6 @@ elif page == "🖨 CS Print List":
         use_container_width=True, height=480,
     )
 
-    # ── Summary by customer ──
     st.markdown("#### 客戶彙總")
     agg_dict = {
         "DNs":      ("customer_display", "count"),
@@ -758,6 +845,20 @@ elif page == "🖨 CS Print List":
     summary = (
         print_df.groupby("customer_display")
         .agg(**agg_dict)
+        .sort_values("DNs", ascending=False)
+        .reset_index()
+    )
+    st.dataframe(summary, use_container_width=True)
+
+    st.markdown("---")
+    col_dl1, col_dl2 = st.columns(2)
+    with col_dl1:
+        csv_p = print_df[print_cols].to_csv(index=False, encoding="utf-8-sig")
+        st.download_button("⬇ 下載出貨清單 CSV", data=csv_p.encode("utf-8-sig"),
+                           file_name=f"cs_print_{today}.csv", mime="text/csv")
+    with col_dl2:
+        st.info("💡 按 Ctrl+P (Windows) / ⌘+P (Mac) 可列印目前畫面")
+ .agg(**agg_dict)
         .sort_values("DNs", ascending=False)
         .reset_index()
     )
