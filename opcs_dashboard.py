@@ -26,22 +26,25 @@ st.set_page_config(
 # ─────────────────────────────────────────────
 # CONSTANTS
 # ─────────────────────────────────────────────
-CUTOFF_HOUR = 12
+CUTOFF_HOUR   = 11
+CUTOFF_MINUTE = 30
 
-# Dispatch rules: customer (key to match) → {destination: rule}
+# Dispatch rules: customer key (uppercase substring match) → {destination key (uppercase): rule}
+# Destination matched against "Ship To Country" column in raw data
 RULES_RAW = {
-    "EDOM TECHNOLOGY":          {"HK": "W2/W5", "TW": "W4"},
+    "EDOM TECHNOLOGY":           {"HK": "W2/W5", "TW": "W4"},
     "BANG TAI":                  {"HK": "W2/W5"},
     "WT MICROELECTRONICS":       {"HK": "Everyday", "TW": "W2/W4"},
     "ARROW ASIA PAC":            {"HK": "W2/W4"},
     "HMD KOREA":                 {"KR": "W2"},
-    "ARROW CENTRAL EUROPE":      {"Netherlands": "W4"},
+    "ARROW CENTRAL EUROPE":      {"NETHERLANDS": "W4", "NL": "W4"},
+    "ARROW ELECTRONICS ASIA":    {"MALAYSIA": "W2/W4", "MY": "W2/W4"},
     "UNIVERSAL SCIENTIFIC":      {"TW": "W3", "CN": "W3"},
-    "MOUSER":                    {"US": "Everyday"},
-    "DIGIKEY":                   {"US": "Everyday"},
-    "AVNET":                     {"US": "Everyday"},
+    "MOUSER":                    {"*": "Everyday"},
+    "DIGIKEY":                   {"*": "Everyday"},
+    "AVNET":                     {"*": "Everyday"},
     "ARROW COMPONENTS MX":       {"MX": "Everyday"},
-    "FORTUNE TECH":              {"HK": "W2/W5"},
+    "FORTUNE TECH":              {"*": "W5"},   # Abroad / any destination → W5
     "SCHENKER":                  {"SG": "W2/W4"},
     "PANGAEA":                   {"HK": "W2/W4"},
     "FEDEX":                     {"*": "FEDEX"},
@@ -94,7 +97,7 @@ def process_data(df: pd.DataFrame) -> pd.DataFrame:
         dn = row["DN Created Date/Time"]
         if pd.isna(dn) or pd.isna(crsd):
             return crsd
-        if dn.date() == latest_dn_date and dn.hour >= CUTOFF_HOUR:
+        if dn.date() == latest_dn_date and (dn.hour, dn.minute) >= (CUTOFF_HOUR, CUTOFF_MINUTE):
             return crsd + timedelta(days=1)
         return crsd
 
@@ -118,34 +121,43 @@ def process_data(df: pd.DataFrame) -> pd.DataFrame:
 
     df["work_status"] = df.apply(work_status, axis=1)
 
-    # ── Dispatch rule lookup ──
-    def get_dispatch_rule(customer: str, destination: str) -> str:
-        cust_upper = str(customer).upper()
-        dest = str(destination).upper()
-        for key, dest_rules in RULES_RAW.items():
-            if key.upper() in cust_upper or key.upper() in dest:
-                for d, rule in dest_rules.items():
-                    if d == "*" or d.upper() in dest:
-                        return rule
-        # FEDEX / DHL anywhere in customer name
-        if "FEDEX" in cust_upper:
-            return "FEDEX"
-        if "DHL" in cust_upper:
-            return "DHL"
-        return ""
+    # ── Column detection ──
+    def find_col(df, *keywords):
+        """Find first column whose name contains any of the keywords (case-insensitive)."""
+        for kw in keywords:
+            for c in df.columns:
+                if kw.lower() in c.lower():
+                    return c
+        return None
 
-    ship_to_col = next((c for c in df.columns if "ship-to" in c.lower() or "shipto" in c.lower() or "Ship To" in c), None)
-    dest_col    = next((c for c in df.columns if "country" in c.lower() or "destination" in c.lower() or "Dest" in c), None)
-    customer_col = next((c for c in df.columns if "customer" in c.lower() or "sold-to" in c.lower()), "Customer")
-
+    customer_col   = find_col(df, "sold-to name", "sold to name", "customer name", "customer")
     if customer_col not in df.columns:
-        # try to find sold-to
-        customer_col = next((c for c in df.columns if "sold" in c.lower()), df.columns[0])
+        customer_col = find_col(df, "sold") or df.columns[0]
+
+    # Ship To Country — used for dispatch destination matching
+    ship_country_col = find_col(df, "ship to country", "ship-to country", "shipto country", "country")
+    incoterms_col    = find_col(df, "incoterms", "inco term", "payment code", "terms")
+
+    # ── Dispatch rule lookup ──
+    def get_dispatch_rule(customer: str, ship_country: str) -> str:
+        cust_upper    = str(customer).upper()
+        country_upper = str(ship_country).upper().strip()
+        # FEDEX / DHL shortcut
+        if "FEDEX" in cust_upper: return "FEDEX"
+        if "DHL"   in cust_upper: return "DHL"
+        for key, dest_rules in RULES_RAW.items():
+            if key.upper() in cust_upper:
+                for dest_key, rule in dest_rules.items():
+                    if dest_key == "*":
+                        return rule
+                    if dest_key.upper() in country_upper or country_upper in dest_key.upper():
+                        return rule
+        return ""
 
     df["dispatch_rule"] = df.apply(
         lambda r: get_dispatch_rule(
             r.get(customer_col, ""),
-            r.get(dest_col, "") if dest_col else ""
+            r.get(ship_country_col, "") if ship_country_col else ""
         ),
         axis=1
     )
@@ -187,8 +199,22 @@ def process_data(df: pd.DataFrame) -> pd.DataFrame:
 
     df["kpi_bucket"] = df["days_to_kpi"].apply(kpi_bucket)
 
-    # ── Customer display ──
-    df["customer_display"] = df[customer_col].astype(str).str.strip()
+    # ── Customer display: INCOTERMS-CUSTOMER NAME ──
+    if incoterms_col and incoterms_col in df.columns:
+        df["customer_display"] = (
+            df[incoterms_col].astype(str).str.strip().str.upper()
+            + "-"
+            + df[customer_col].astype(str).str.strip().str.upper()
+        )
+        # Clean up "NAN-..." cases
+        df["customer_display"] = df["customer_display"].str.replace(r"^NAN-", "", regex=True)
+    else:
+        df["customer_display"] = df[customer_col].astype(str).str.strip()
+
+    # ── dispatch_rule_display: hide "Everyday" ──
+    df["dispatch_rule_display"] = df["dispatch_rule"].apply(
+        lambda r: "" if r == "Everyday" else r
+    )
 
     return df, customer_col
 
@@ -218,7 +244,7 @@ with st.sidebar:
     wd_label = WEEKDAY_MAP.get(today_disp.weekday(), "")
     wd_cn = {"W1": "一", "W2": "二", "W3": "三", "W4": "四", "W5": "五"}.get(wd_label, "")
     st.markdown(f"**今天：** {today_disp}  \n**{wd_label} (星期{wd_cn})**")
-    st.caption("KPI 截止點：12:00 (New CRSD 基準)")
+    st.caption("KPI 截止點：11:30 (New CRSD 基準)")
 
 
 # ─────────────────────────────────────────────
@@ -293,7 +319,7 @@ if page == "📊 Dashboard":
     with c2:
         st.markdown(f"**{wd_label} 星期{wd_cn}** · {today}")
 
-    st.caption(f"🕛 KPI 截止點 12:00 ｜ New CRSD 基準 ｜ 今天 = {wd_label}")
+    st.caption(f"🕛 KPI 截止點 11:30 ｜ New CRSD 基準 ｜ 今天 = {wd_label}")
     st.divider()
 
     # ── Three status cards ──
@@ -540,7 +566,7 @@ elif page == "📋 Raw Data":
         sp_col, dn_col, customer_col,
         "New CRSD", "kpi_date", "days_to_kpi",
         "work_status", "priority", "kpi_bucket",
-        "dispatch_rule", "dispatch_today",
+        "dispatch_rule_display", "dispatch_today",
         "Picking Status", "Packing Status", "Special Processing",
     ] if c and c in filtered.columns]
 
@@ -649,9 +675,9 @@ elif page == "🔍 Detail View":
         customer_col,
         "New CRSD", "kpi_date", "days_to_kpi", "kpi_bucket",
         "work_status", "priority",
-        "dispatch_rule", "dispatch_today",
+        "dispatch_rule_display", "dispatch_today",
         "Picking Status", "Packing Status", "Special Processing",
-        next((c for c in df.columns if "box" in c.lower()), None),
+        next((c for c in df.columns if "box" in c.lower() or "件數" in c), None),
         next((c for c in df.columns if "weight" in c.lower() or "wt" in c.lower()), None),
     ] if c and c in sub_d.columns]
 
@@ -704,9 +730,22 @@ elif page == "🖨 CS Print List":
     today_w   = WEEKDAY_MAP.get(today.weekday(), "")
     wd_cn     = {"W1": "一", "W2": "二", "W3": "三", "W4": "四", "W5": "五"}.get(today_w, "")
 
-    sp_col = next((c for c in df.columns if "Shipping Point" in c), None)
-    box_col = next((c for c in df.columns if "box" in c.lower() or "carton" in c.lower()), None)
-    dn_col  = next((c for c in df.columns if c.strip().upper() in ["DN", "DELIVERY", "DELIVERY NOTE"]), None)
+    def _fc(df, *kws):
+        for kw in kws:
+            for c in df.columns:
+                if kw.lower() in c.lower():
+                    return c
+        return None
+
+    sp_col       = _fc(df, "shipping point", "ship. pt")
+    dn_col       = _fc(df, "delivery")
+    etd_col      = _fc(df, "etd")
+    ship_to_col  = _fc(df, "ship to customer", "ship-to customer", "ship to name")
+    box_col      = _fc(df, "件數", "box", "carton", "qty")
+    route_col    = _fc(df, "route")
+    dst_col      = _fc(df, "dst", "destination", "ship to country", "ship-to country")
+    pay_col      = _fc(df, "payment code", "incoterms", "inco term")
+    acct_col     = _fc(df, "delivery account", "account")
 
     # ── Controls ──
     ct1, ct2 = st.columns([2, 1])
@@ -745,18 +784,20 @@ elif page == "🖨 CS Print List":
     st.markdown(f"### {title}")
     st.caption(f"共 {len(print_df)} 筆 ｜ 產生時間：{datetime.now().strftime('%Y-%m-%d %H:%M')}")
 
-    # ── Print-friendly columns ──
-    print_cols = [c for c in [
-        sp_col, dn_col, customer_col,
-        "New CRSD", "kpi_date", "days_to_kpi",
-        "work_status", "priority", "dispatch_rule",
-        "Special Processing",
-        box_col,
-        next((c for c in df.columns if "weight" in c.lower()), None),
-        next((c for c in df.columns if "dest" in c.lower() or "ship to" in c.lower()), None),
-    ] if c and c in print_df.columns]
+    # ── CS Print columns — match header: Delivery / SP / ETD / DN Created / New CRSD /
+    #    Ship to Customer / 件數 / ROUTE / DST / Payment Code / Delivery Account ──
+    # Also inject dispatch_rule_display (hides "Everyday") and work_status / priority
+    candidate_cols = [
+        dn_col, sp_col, etd_col, "DN Created Date/Time", "New CRSD",
+        ship_to_col, "customer_display",
+        box_col, route_col, dst_col, pay_col, acct_col,
+        "work_status", "priority", "dispatch_rule_display", "Special Processing",
+    ]
     seen = set()
-    print_cols = [c for c in print_cols if not (c in seen or seen.add(c))]
+    print_cols = [
+        c for c in candidate_cols
+        if c and c in print_df.columns and not (c in seen or seen.add(c))
+    ]
 
     # ── Styled table ──
     def style_print(row):
