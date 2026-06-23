@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-OP&CS Operations Dashboard - Streamlit App
+SKYWORKS Operations Dashboard - Streamlit App
 4 Pages: Dashboard | Raw Data | Detail View | CS Print List
 Requirements: pip install streamlit pandas openpyxl
 """
@@ -9,6 +9,11 @@ import io
 import streamlit as st
 import pandas as pd
 from datetime import date, timedelta, datetime
+
+DIMERCO_LOGO_HTML = (
+    '<img src="data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMjIwIiBoZWlnaHQ9IjY1IiB2aWV3Qm94PSIwIDAgMjIwIDY1IiB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciPjxkZWZzPjxzdHlsZT4ubHR7Zm9udC1mYW1pbHk6IkFyaWFsIEJsYWNrIixJbXBhY3Qsc2Fucy1zZXJpZjtmb250LXN0eWxlOml0YWxpYztmb250LXdlaWdodDo5MDA7Zm9udC1zaXplOjM2cHg7ZmlsbDojMDA5MEQ5O2xldHRlci1zcGFjaW5nOi0xcHg7fTwvc3R5bGU+PC9kZWZzPjx0ZXh0IGNsYXNzPSJsdCIgeD0iNCIgeT0iNDIiPkRJTUVSQ088L3RleHQ+PHBhdGggZD0iTSAxMDAgNTIgQyAxNDAgNDQsMTgwIDQ0LDIyMCA0OCIgc3Ryb2tlPSIjMDA5MEQ5IiBzdHJva2Utd2lkdGg9IjMuNSIgZmlsbD0ibm9uZSIgc3Ryb2tlLWxpbmVjYXA9InJvdW5kIi8+PHBhdGggZD0iTSAxMDAgNTkgQyAxNDAgNTEsMTgwIDUxLDIyMCA1NSIgc3Ryb2tlPSIjRjdBNjFEIiBzdHJva2Utd2lkdGg9IjQuNSIgZmlsbD0ibm9uZSIgc3Ryb2tlLWxpbmVjYXA9InJvdW5kIi8+PC9zdmc+"'
+    ' style="width:190px;margin-bottom:4px;">'
+)
 
 st.set_page_config(
     page_title="SKYWORKS 作業排程",
@@ -51,10 +56,13 @@ WS_COLORS = {
 }
 
 P_COLORS = {
-    "P1": "#E24B4A",
-    "P2": "#EF9F27",
-    "P3": "#3B6D11",
-    "P4": "#888888",
+    "P1": "#A32D2D",
+    "P2": "#E24B4A",
+    "P3": "#C7500A",
+    "P4": "#EF9F27",
+    "P5": "#185FA5",
+    "P6": "#5588BB",
+    "P7": "#AAAAAA",
 }
 
 
@@ -197,19 +205,35 @@ def process_data(raw_df):
         lambda d: (d - today).days if pd.notna(d) else 999
     )
 
-    # step 6 – priority
+    # step 6 – priority  (based on days_to_effective + work stage)
+    # P1 : eff<=2 days, 未撿貨
+    # P2 : eff<=2 days, 已撿待包
+    # P3 : eff 3-5 days, 未撿貨
+    # P4 : eff 3-5 days, 已撿待包
+    # P5 : eff 6-10 days, 未撿貨
+    # P6 : eff 6-10 days, 已撿待包
+    # P7 : eff >10 days (any stage) or 已包待出
     def _priority(row):
-        days   = row["days_to_kpi"]
-        picked = "C - Completely" in str(row.get("Picking Status", ""))
-        if days <= 0:
-            return "P1"
+        days = row["days_to_effective"]
+        ws   = row["work_status"]
+        # 已包待出 — already packed; priority by urgency only
+        if ws in ("已包待出_GO", "已包待出_X"):
+            if days <= 2:
+                return "P1"
+            if days <= 5:
+                return "P3"
+            if days <= 10:
+                return "P5"
+            return "P7"
+        # pick / pack pipeline
+        not_picked = (ws == "未撿貨")
         if days <= 2:
-            return "P2"
-        if row["dispatch_today"] and not picked:
-            return "P2"
+            return "P1" if not_picked else "P2"
         if days <= 5:
-            return "P3"
-        return "P4"
+            return "P3" if not_picked else "P4"
+        if days <= 10:
+            return "P5" if not_picked else "P6"
+        return "P7"
 
     df["priority"] = df.apply(_priority, axis=1)
 
@@ -250,12 +274,13 @@ def process_data(raw_df):
 
 # ── Sidebar ────────────────────────────────────────────────────────────────────
 with st.sidebar:
-    st.markdown("## SKYWORKS 作業排程")
+    st.markdown(DIMERCO_LOGO_HTML, unsafe_allow_html=True)
+    st.markdown("### SKYWORKS 作業排程")
     st.markdown("---")
 
     page = st.radio(
         "頁面導航",
-        ["Dashboard", "Raw Data", "Detail View", "CS Print List"],
+        ["📊 Dashboard", "📋 Raw Data", "🔍 Detail View", "🖨 CS Print List"],
         index=st.session_state.get("page_index", 0),
         key="nav_radio",
     )
@@ -303,7 +328,7 @@ def go_to_detail(key, val):
 # ══════════════════════════════════════════════════════════════════════════════
 # PAGE 1 – DASHBOARD
 # ══════════════════════════════════════════════════════════════════════════════
-if page == "Dashboard":
+if page == "📊 Dashboard":
     today = date.today()
 
     counts  = df["work_status"].value_counts()
@@ -565,8 +590,8 @@ if page == "Dashboard":
 # ══════════════════════════════════════════════════════════════════════════════
 # PAGE 2 – RAW DATA
 # ══════════════════════════════════════════════════════════════════════════════
-elif page == "Raw Data":
-    st.markdown("## Raw Data — 完整訂單列表")
+elif page == "📋 Raw Data":
+    st.markdown("## 📋 Raw Data — 完整訂單列表")
 
     sp_col = find_col(df, "shipping point", "ship. pt")
     dn_col = find_col(df, "delivery")
@@ -641,23 +666,27 @@ elif page == "Raw Data":
 # ══════════════════════════════════════════════════════════════════════════════
 # PAGE 3 – DETAIL VIEW
 # ══════════════════════════════════════════════════════════════════════════════
-elif page == "Detail View":
-    st.markdown("## Detail View")
+elif page == "🔍 Detail View":
+    st.markdown("## 🔍 Detail View")
 
     dfk = st.session_state.get("detail_filter_key")
     dfv = st.session_state.get("detail_filter_val")
     sp_col = find_col(df, "shipping point", "ship. pt")
 
-    c1, c2, c3 = st.columns(3)
+    c1, c2, c3, c4 = st.columns(4)
     with c1:
         ws_opts = sorted(df["work_status"].dropna().unique())
         dws = [dfv] if dfk == "work_status" and dfv in ws_opts else []
         sel_ws_d = st.multiselect("作業狀態", options=ws_opts, default=dws, key="d_ws")
     with c2:
+        p_opts = ["P1", "P2", "P3", "P4", "P5", "P6", "P7"]
+        dp = [dfv] if dfk == "priority" and dfv in p_opts else []
+        sel_p_d = st.multiselect("Priority", options=p_opts, default=dp, key="d_p")
+    with c3:
         cu_opts = sorted(df["customer_display"].dropna().unique())
         dcu = [dfv] if dfk == "customer" and dfv in cu_opts else []
         sel_cu_d = st.multiselect("客戶", options=cu_opts, default=dcu, key="d_cu")
-    with c3:
+    with c4:
         sp_opts = sorted(df[sp_col].dropna().unique()) if sp_col else []
         dsp = [dfv] if dfk == "sp" and dfv in sp_opts else []
         sel_sp_d = st.multiselect("Shipping Point", options=sp_opts, default=dsp, key="d_sp")
@@ -665,6 +694,8 @@ elif page == "Detail View":
     md = pd.Series([True] * len(df), index=df.index)
     if sel_ws_d:
         md &= df["work_status"].isin(sel_ws_d)
+    if sel_p_d:
+        md &= df["priority"].isin(sel_p_d)
     if sel_cu_d:
         md &= df["customer_display"].isin(sel_cu_d)
     if sel_sp_d and sp_col:
@@ -729,8 +760,8 @@ elif page == "Detail View":
 # ══════════════════════════════════════════════════════════════════════════════
 # PAGE 4 – CS PRINT LIST
 # ══════════════════════════════════════════════════════════════════════════════
-elif page == "CS Print List":
-    st.markdown("## CS 出貨清單 — 依 Dispatch 規則")
+elif page == "🖨 CS Print List":
+    st.markdown("## 🖨 CS 出貨清單 — 依 Dispatch 規則")
 
     today   = date.today()
     today_w = WEEKDAY_MAP.get(today.weekday(), "")
@@ -770,7 +801,7 @@ elif page == "CS Print List":
     else:
         print_df = df[mp].copy()
 
-    po = {"P1": 0, "P2": 1, "P3": 2, "P4": 3}
+    po = {"P1": 0, "P2": 1, "P3": 2, "P4": 3, "P5": 4, "P6": 5, "P7": 6}
     print_df["_po"] = print_df["priority"].map(po).fillna(9)
     print_df = print_df.sort_values(["_po", "days_to_kpi", "customer_display"])
 
@@ -802,8 +833,7 @@ elif page == "CS Print List":
     st.markdown("#### 客戶彙總")
     agg_d = {
         "DNs":      ("customer_display", "count"),
-        "Dispatch": ("dispatch_rule_display", lambda x: x.mode()[0] if not x.empty else ""),
-        "Status":   ("work_status", lambda x: ", ".join(x.unique()[:2])),
+        "Dispatch": ("dispatch_rule_display", lambda x: x.mode()[0] if not x.empty else ""),        "Status":   ("work_status", lambda x: ", ".join(x.unique()[:2])),
         "Min_CRSD": ("New CRSD", "min"),
     }
     if box_col:
@@ -821,7 +851,11 @@ elif page == "CS Print List":
     dl1, dl2 = st.columns(2)
     with dl1:
         csv_p = print_df[pcols].to_csv(index=False, encoding="utf-8-sig")
-        st.download_button("下載出貨清單 CSV", data=csv_p.encode("utf-8-sig"),
-                           file_name=f"cs_print_{today}.csv", mime="text/csv")
+        st.download_button(
+            "Download CSV",
+            data=csv_p.encode("utf-8-sig"),
+            file_name=f"cs_print_{today}.csv",
+            mime="text/csv",
+        )
     with dl2:
-        st.info("Ctrl+P (Windows) / Cmd+P (Mac) 可列印目前畫面")
+        st.info("Ctrl+P (Windows) / Cmd+P (Mac) to print current view")
