@@ -11,7 +11,7 @@ import pandas as pd
 from datetime import date, timedelta, datetime
 
 st.set_page_config(
-    page_title="OP&CS 作業排程",
+    page_title="SKYWORKS 作業排程",
     page_icon="📦",
     layout="wide",
     initial_sidebar_state="expanded",
@@ -250,7 +250,7 @@ def process_data(raw_df):
 
 # ── Sidebar ────────────────────────────────────────────────────────────────────
 with st.sidebar:
-    st.markdown("## OP&CS 作業排程")
+    st.markdown("## SKYWORKS 作業排程")
     st.markdown("---")
 
     page = st.radio(
@@ -327,7 +327,7 @@ if page == "Dashboard":
 
     hc1, hc2 = st.columns([3, 1])
     with hc1:
-        st.markdown("## OP&CS 作業排程")
+        st.markdown("## SKYWORKS 作業排程")
     with hc2:
         st.markdown(f"**{wl} 星期{wc}** · {today}")
     st.caption(f"KPI 截止點 11:30 | New CRSD 基準 | 今天 = {wl}")
