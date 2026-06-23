@@ -373,8 +373,11 @@ if page == "📊 Dashboard":
         st.markdown("")
         pick_df = df[df["work_status"] == "未撿貨"]
         for bkt, clr in [("今日必出", "#E24B4A"), ("明天", "#EF9F27"),
-                          ("本週", "#3B6D11"), ("下週", "#888"), ("中長期", "#aaa")]:
+                          ("本週", "#3B6D11"), ("下週", "#888"), ("中長期", "#aaa"),
+                          ("待核准出貨", "#A32D2D")]:
             n = len(pick_df[pick_df["kpi_bucket"] == bkt])
+            if n == 0 and bkt == "待核准出貨":
+                continue
             st.markdown(
                 f'<span style="color:{clr};font-weight:500;">{bkt}</span>'
                 f'<span style="float:right;font-weight:600;">{n}</span>',
@@ -395,8 +398,11 @@ if page == "📊 Dashboard":
         st.markdown("")
         pack_df = df[df["work_status"] == "已撿待包"]
         for bkt, clr in [("今日必出", "#E24B4A"), ("明天", "#EF9F27"),
-                          ("本週", "#3B6D11"), ("下週", "#888"), ("中長期", "#aaa")]:
+                          ("本週", "#3B6D11"), ("下週", "#888"), ("中長期", "#aaa"),
+                          ("待核准出貨", "#A32D2D")]:
             n = len(pack_df[pack_df["kpi_bucket"] == bkt])
+            if n == 0 and bkt == "待核准出貨":
+                continue
             st.markdown(
                 f'<span style="color:{clr};font-weight:500;">{bkt}</span>'
                 f'<span style="float:right;font-weight:600;">{n}</span>',
