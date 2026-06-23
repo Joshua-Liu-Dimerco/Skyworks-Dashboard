@@ -17,7 +17,7 @@ from datetime import date, timedelta, datetime
 # CONFIG
 # ─────────────────────────────────────────────
 st.set_page_config(
-    page_title="SKYWORKS OP&CS 作業排程",
+    page_title="SKYWORKS OP&CS 作業",
     page_icon="📦",
     layout="wide",
     initial_sidebar_state="expanded",
@@ -254,7 +254,7 @@ def process_data(df: pd.DataFrame):
 # SIDEBAR
 # ─────────────────────────────────────────────
 with st.sidebar:
-    st.markdown("## 📦 SKYWORKS OP&CS 作業排程")
+    st.markdown("## 📦 SKYWORKS OP&CS 作業")
     st.markdown("---")
 
     page = st.radio(
@@ -336,7 +336,7 @@ if page == "📊 Dashboard":
 
     c1, c2 = st.columns([3, 1])
     with c1:
-        st.markdown("## SKYWORKS OP&CS 作業排程")
+        st.markdown("## SKYWORKS OP&CS 作業")
     with c2:
         st.markdown(f"**{wd_label} 星期{wd_cn}** · {today}")
 
