@@ -1,30 +1,26 @@
 #!/usr/bin/env python3
-"""
-SKYWORKS Operations Dashboard - Streamlit App
-4 Pages: Dashboard | Raw Data | Detail View | CS Print List
-Requirements: pip install streamlit pandas openpyxl
-"""
+"""SKYWORKS Operations Dashboard - 3 Pages: Dashboard | Detail View | CS Print List"""
 
-import io
+import io, base64
 import streamlit as st
 import pandas as pd
 from datetime import date, timedelta, datetime
 
+# ── Logo ───────────────────────────────────────────────────────────────────────
 DIMERCO_LOGO_HTML = (
-    '<img src="data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNDQwIiBoZWlnaHQ9IjU4IiB2aWV3Qm94PSIwIDAgNDQwIDU4IiB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciPgogIDwhLS0gRElNRVJDTyB3b3JkbWFyayAtLT4KICA8dGV4dCB4PSIyIiB5PSIzMCIKICAgIGZvbnQtZmFtaWx5PSInQXJpYWwgQmxhY2snLCdIZWx2ZXRpY2EgTmV1ZScsc2Fucy1zZXJpZiIKICAgIGZvbnQtc3R5bGU9Iml0YWxpYyIgZm9udC13ZWlnaHQ9IjkwMCIgZm9udC1zaXplPSIyNiIgZmlsbD0iIzAwOUVFMyIKICAgIGxldHRlci1zcGFjaW5nPSItMC41Ij5ESU1FUkNPPC90ZXh0PgoKICA8IS0tIEJsdWUgc3dvb3NoIC0tPgogIDxwYXRoIGQ9Ik0gNzYgMzQgQyAxMDAgMzEsIDEyMCAyOSwgMTQwIDI2IgogICAgc3Ryb2tlPSIjMDA5RUUzIiBzdHJva2Utd2lkdGg9IjMuMiIgZmlsbD0ibm9uZSIgc3Ryb2tlLWxpbmVjYXA9InJvdW5kIi8+CiAgPCEtLSBPcmFuZ2Ugc3dvb3NoIC0tPgogIDxwYXRoIGQ9Ik0gNzYgNDAgQyAxMDAgMzcsIDEyMCAzNSwgMTQwIDMyIgogICAgc3Ryb2tlPSIjRjdBMTFBIiBzdHJva2Utd2lkdGg9IjQuMiIgZmlsbD0ibm9uZSIgc3Ryb2tlLWxpbmVjYXA9InJvdW5kIi8+CgogIDwhLS0gVmVydGljYWwgZGl2aWRlciAtLT4KICA8bGluZSB4MT0iMTUyIiB5MT0iNiIgeDI9IjE1MiIgeTI9IjUyIiBzdHJva2U9IiNCQkJCQkIiIHN0cm9rZS13aWR0aD0iMSIvPgoKICA8IS0tIENoaW5lc2UgY29tcGFueSBuYW1lIC0tPgogIDx0ZXh0IHg9IjE2MyIgeT0iMzAiCiAgICBmb250LWZhbWlseT0iJ01pY3Jvc29mdCBKaGVuZ0hlaScsJ1BpbmdGYW5nIFRDJywnTm90byBTYW5zIFRDJyxzYW5zLXNlcmlmIgogICAgZm9udC13ZWlnaHQ9IjcwMCIgZm9udC1zaXplPSIyMiIgZmlsbD0iIzAwMzA4NyI+CiAgICDlpJrlhYPlnIvpmpvnianmtYHogqHku73mnInpmZDlhazlj7gKICA8L3RleHQ+CgogIDwhLS0gRW5nbGlzaCBjb21wYW55IG5hbWUgLS0+CiAgPHRleHQgeD0iMTYzIiB5PSI0OCIKICAgIGZvbnQtZmFtaWx5PSInQXJpYWwnLCdIZWx2ZXRpY2EgTmV1ZScsc2Fucy1zZXJpZiIKICAgIGZvbnQtd2VpZ2h0PSI0MDAiIGZvbnQtc2l6ZT0iMTAuNSIgZmlsbD0iIzU1NTU1NSIgbGV0dGVyLXNwYWNpbmc9IjAuMyI+CiAgICBESVZFUlNJRklFRCBJTlRFUk5BVElPTkFMIExPR0lTVElDUyBDTy4sIExURC4KICA8L3RleHQ+Cjwvc3ZnPg=="'
+    '<img src="data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNDQwIiBoZWlnaHQ9IjU4IiB2aWV3Qm94PSIwIDAgNDQwIDU4IiB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciPjxkZWZzPjxzdHlsZT4ubHR7Zm9udC1mYW1pbHk6IkFyaWFsIEJsYWNrIixJbXBhY3Qsc2Fucy1zZXJpZjtmb250LXN0eWxlOml0YWxpYztmb250LXdlaWdodDo5MDA7Zm9udC1zaXplOjI2cHg7ZmlsbDojMDA5RUUzO2xldHRlci1zcGFjaW5nOi0wLjVweDt9PC9zdHlsZT48L2RlZnM+PHRleHQgY2xhc3M9Imx0IiB4PSIyIiB5PSIzMCI+RElNRVJDTzwvdGV4dD48cGF0aCBkPSJNIDc2IDM0IEMgMTAwIDMxLDEyMCAyOSwxNDAgMjYiIHN0cm9rZT0iIzAwOUVFMyIgc3Ryb2tlLXdpZHRoPSIzLjIiIGZpbGw9Im5vbmUiIHN0cm9rZS1saW5lY2FwPSJyb3VuZCIvPjxwYXRoIGQ9Ik0gNzYgNDAgQyAxMDAgMzcsMTIwIDM1LDE0MCAzMiIgc3Ryb2tlPSIjRjdBMTFBIiBzdHJva2Utd2lkdGg9IjQuMiIgZmlsbD0ibm9uZSIgc3Ryb2tlLWxpbmVjYXA9InJvdW5kIi8+PGxpbmUgeDE9IjE1MiIgeTE9IjYiIHgyPSIxNTIiIHkyPSI1MiIgc3Ryb2tlPSIjQkJCQkJCIiBzdHJva2Utd2lkdGg9IjEiLz48dGV4dCB4PSIxNjMiIHk9IjMwIiBmb250LWZhbWlseT0iTWljcm9zb2Z0IEpoZW5nSGVpLFBpbmdGYW5nIFRDLHNhbnMtc2VyaWYiIGZvbnQtd2VpZ2h0PSI3MDAiIGZvbnQtc2l6ZT0iMjAiIGZpbGw9IiMwMDMwODciPuWkmuWFg+Wci+mam+eJqea1geiCoeS7veaciemZkOWFrOWPuDwvdGV4dD48dGV4dCB4PSIxNjMiIHk9IjQ4IiBmb250LWZhbWlseT0iQXJpYWwsc2Fucy1zZXJpZiIgZm9udC13ZWlnaHQ9IjQwMCIgZm9udC1zaXplPSIxMC41IiBmaWxsPSIjNTU1NTU1IiBsZXR0ZXItc3BhY2luZz0iMC4zIj5ESVZFUlNJRklFRCBJTlRFUk5BVElPTkFMIExPR0lTVElDUyBDTy4sIExURC48L3RleHQ+PC9zdmc+"'
     ' style="width:260px;margin-bottom:4px;">'
 )
 
 st.set_page_config(
     page_title="SKYWORKS 作業排程",
-    page_icon="📦",
+    page_icon="\U0001f4e6",
     layout="wide",
     initial_sidebar_state="expanded",
 )
 
 # ── Constants ──────────────────────────────────────────────────────────────────
-CUTOFF_HOUR   = 11
-CUTOFF_MINUTE = 30
+CUTOFF_HOUR, CUTOFF_MINUTE = 11, 30
 
 RULES_RAW = {
     "EDOM TECHNOLOGY":        {"HK": "W2/W5", "TW": "W4"},
@@ -49,38 +45,35 @@ RULES_RAW = {
 WEEKDAY_MAP = {0: "W1", 1: "W2", 2: "W3", 3: "W4", 4: "W5"}
 
 WS_COLORS = {
-    "未撿貨":      "#3B6D11",
-    "已撿待包":    "#854F0B",
+    "未揀貨":      "#3B6D11",
+    "已揀待包":    "#854F0B",
     "已包待出_GO": "#185FA5",
     "已包待出_X":  "#A32D2D",
 }
 
 P_COLORS = {
-    "P1": "#A32D2D",
-    "P2": "#E24B4A",
-    "P3": "#C7500A",
-    "P4": "#EF9F27",
-    "P5": "#185FA5",
-    "P6": "#5588BB",
+    "P1": "#A32D2D", "P2": "#E24B4A",
+    "P3": "#C7500A", "P4": "#EF9F27",
+    "P5": "#185FA5", "P6": "#5588BB",
     "P7": "#AAAAAA",
 }
 
+BKT_ORDER = ["今日必出", "明天", "本週",
+             "下週", "中長期"]
 
 # ── Helpers ────────────────────────────────────────────────────────────────────
-def find_col(df, *keywords):
-    for kw in keywords:
+def find_col(df, *kws):
+    for kw in kws:
         for c in df.columns:
             if kw.lower() in c.lower():
                 return c
     return None
-
 
 def next_workday(d):
     nxt = d + timedelta(days=1)
     while nxt.weekday() >= 5:
         nxt += timedelta(days=1)
     return nxt
-
 
 def rule_weekdays(rule):
     r = str(rule).strip()
@@ -93,7 +86,6 @@ def rule_weekdays(rule):
             days.append(int(t[1:]) - 1)
     return days or None
 
-
 def next_dispatch_day(base, rule):
     allowed = rule_weekdays(rule)
     if allowed is None:
@@ -104,21 +96,19 @@ def next_dispatch_day(base, rule):
             return c
     return base
 
-
 # ── Data processing ────────────────────────────────────────────────────────────
 def process_data(raw_df):
     df = raw_df.copy()
     today   = date.today()
     today_w = WEEKDAY_MAP.get(today.weekday(), "")
 
-    # column detection
-    customer_col = find_col(df, "sold-to name", "sold to name", "customer name", "customer")
+    customer_col     = find_col(df, "sold-to name", "sold to name", "customer name", "customer")
     if not customer_col or customer_col not in df.columns:
         customer_col = find_col(df, "sold") or df.columns[0]
     ship_country_col = find_col(df, "ship to country", "ship-to country", "shipto country")
     incoterms_col    = find_col(df, "incoterms", "inco term", "payment code", "terms")
 
-    # step 1 – parse dates
+    # step 1 – dates
     df["New CRSD"] = pd.to_datetime(df["New CRSD"], errors="coerce").dt.date
     df["DN Created Date/Time"] = pd.to_datetime(df["DN Created Date/Time"], errors="coerce")
 
@@ -128,149 +118,117 @@ def process_data(raw_df):
         pack = str(row.get("Packing Status", ""))
         sp   = str(row.get("Special Processing", "")).strip()
         if "A - Not yet" in pick:
-            return "未撿貨"
+            return "未揀貨"
         if "C - Completely" in pick and "Not Relevant" in pack:
-            return "已撿待包"
+            return "已揀待包"
         if "C - Completely" in pick and "C - Completely" in pack:
             return "已包待出_X" if sp == "X" else "已包待出_GO"
         return "其他"
-
     df["work_status"] = df.apply(_ws, axis=1)
 
     # step 3 – dispatch rule
     def _rule(customer, ship_country):
         cu = str(customer).upper()
         cy = str(ship_country).upper().strip()
-        if "FEDEX" in cu:
-            return "FEDEX"
-        if "DHL" in cu:
-            return "DHL"
+        if "FEDEX" in cu: return "FEDEX"
+        if "DHL"   in cu: return "DHL"
         for key, dest_rules in RULES_RAW.items():
             if key.upper() in cu:
                 for dk, rule in dest_rules.items():
-                    if dk == "*":
-                        return rule
-                    if dk.upper() in cy or cy in dk.upper():
-                        return rule
+                    if dk == "*": return rule
+                    if dk.upper() in cy or cy in dk.upper(): return rule
         return ""
-
     df["dispatch_rule"] = df.apply(
-        lambda r: _rule(
-            r.get(customer_col, ""),
-            r.get(ship_country_col, "") if ship_country_col else ""
-        ),
-        axis=1,
-    )
+        lambda r: _rule(r.get(customer_col, ""),
+                        r.get(ship_country_col, "") if ship_country_col else ""), axis=1)
 
     def _dispatch_today(rule):
-        if not rule:
-            return False
-        if rule in ("Everyday", "FEDEX", "DHL", "T3EX"):
-            return True
+        if not rule: return False
+        if rule in ("Everyday", "FEDEX", "DHL", "T3EX"): return True
         return today_w in [x.strip() for x in rule.split("/")]
-
     df["dispatch_today"] = df["dispatch_rule"].apply(_dispatch_today)
     df["today_w"] = today_w
 
-    # step 4 – kpi_date with 11:30 cutoff
-    # Applies when: CRSD=today AND work=GO AND dispatch_today AND DN time >= 11:30
+    # step 4 – kpi_date (11:30 cutoff for GO orders)
     def _kpi_date(row):
         crsd = row["New CRSD"]
         dn   = row["DN Created Date/Time"]
-        if pd.isna(crsd):
-            return crsd
-        is_go        = row["work_status"] == "已包待出_GO"
-        crsd_today   = crsd == today
-        d_today      = row["dispatch_today"]
-        past_cutoff  = pd.notna(dn) and (dn.hour, dn.minute) >= (CUTOFF_HOUR, CUTOFF_MINUTE)
-        if crsd_today and is_go and d_today and past_cutoff:
+        if pd.isna(crsd): return crsd
+        if (row["work_status"] == "已包待出_GO"
+                and crsd == today
+                and row["dispatch_today"]
+                and pd.notna(dn)
+                and (dn.hour, dn.minute) >= (CUTOFF_HOUR, CUTOFF_MINUTE)):
             return next_workday(today)
         return crsd
-
     df["kpi_date"] = df.apply(_kpi_date, axis=1)
     df["days_to_kpi"] = df["kpi_date"].apply(
-        lambda d: (d - today).days if pd.notna(d) else 999
-    )
+        lambda d: (d - today).days if pd.notna(d) else 999)
 
     # step 5 – effective ship date
     def _eff(row):
-        kd   = row["kpi_date"]
-        rule = row["dispatch_rule"]
-        if pd.isna(kd):
-            return kd
-        return next_dispatch_day(max(kd, today), rule)
-
+        kd = row["kpi_date"]
+        if pd.isna(kd): return kd
+        return next_dispatch_day(max(kd, today), row["dispatch_rule"])
     df["effective_ship_date"] = df.apply(_eff, axis=1)
     df["days_to_effective"] = df["effective_ship_date"].apply(
-        lambda d: (d - today).days if pd.notna(d) else 999
-    )
+        lambda d: (d - today).days if pd.notna(d) else 999)
 
-    # step 6 – priority  (based on days_to_effective + work stage)
-    # P1 : eff<=2 days, 未撿貨
-    # P2 : eff<=2 days, 已撿待包
-    # P3 : eff 3-5 days, 未撿貨
-    # P4 : eff 3-5 days, 已撿待包
-    # P5 : eff 6-10 days, 未撿貨
-    # P6 : eff 6-10 days, 已撿待包
-    # P7 : eff >10 days (any stage) or 已包待出
+    # step 6 – priority
     def _priority(row):
         days = row["days_to_effective"]
         ws   = row["work_status"]
-        # 已包待出 — already packed; priority by urgency only
         if ws in ("已包待出_GO", "已包待出_X"):
-            if days <= 2:
-                return "P1"
-            if days <= 5:
-                return "P3"
-            if days <= 10:
-                return "P5"
-            return "P7"
-        # pick / pack pipeline
-        not_picked = (ws == "未撿貨")
-        if days <= 2:
-            return "P1" if not_picked else "P2"
-        if days <= 5:
-            return "P3" if not_picked else "P4"
-        if days <= 10:
-            return "P5" if not_picked else "P6"
+            return "P1" if days<=2 else ("P3" if days<=5 else ("P5" if days<=10 else "P7"))
+        not_picked = (ws == "未揀貨")
+        if days <= 2:  return "P1" if not_picked else "P2"
+        if days <= 5:  return "P3" if not_picked else "P4"
+        if days <= 10: return "P5" if not_picked else "P6"
         return "P7"
-
     df["priority"] = df.apply(_priority, axis=1)
 
-    # step 7 – kpi_bucket (SP=X always "待核准出貨")
+    # step 7 – kpi_bucket (date-based only, no SP=X override)
     def _bucket(row):
-        if str(row.get("Special Processing", "")).strip() == "X":
-            return "待核准出貨"
         days = row["days_to_effective"]
-        if days <= 0:
-            return "今日必出"
-        if days == 1:
-            return "明天"
-        if days <= 4:
-            return "本週"
-        if days <= 11:
-            return "下週"
+        if days <= 0:  return "今日必出"
+        if days == 1:  return "明天"
+        if days <= 4:  return "本週"
+        if days <= 11: return "下週"
         return "中長期"
-
     df["kpi_bucket"] = df.apply(_bucket, axis=1)
 
-    # step 8 – display fields
+    # step 8 – sp_display  (X -> "待核准出貨")
+    df["sp_display"] = df["Special Processing"].apply(
+        lambda v: "待核准出貨" if str(v).strip() == "X" else str(v).strip()
+    )
+
+    # step 9 – customer_display / dispatch_rule_display
     if incoterms_col and incoterms_col in df.columns:
         df["customer_display"] = (
             df[incoterms_col].astype(str).str.strip().str.upper()
             + "-"
             + df[customer_col].astype(str).str.strip().str.upper()
-        )
-        df["customer_display"] = df["customer_display"].str.replace(r"^NAN-", "", regex=True)
+        ).str.replace(r"^NAN-", "", regex=True)
     else:
         df["customer_display"] = df[customer_col].astype(str).str.strip()
 
     df["dispatch_rule_display"] = df["dispatch_rule"].apply(
-        lambda r: "" if r == "Everyday" else r
-    )
+        lambda r: "" if r == "Everyday" else r)
 
     return df, customer_col
 
+# ── Navigation helpers ─────────────────────────────────────────────────────────
+def go_to_detail(filter_key=None, filter_val=None):
+    st.session_state["detail_filter_key"] = filter_key
+    st.session_state["detail_filter_val"] = filter_val
+    st.session_state["_nav_idx"] = 1  # Detail View
+    st.rerun()
+
+def go_to_dashboard():
+    st.session_state["detail_filter_key"] = None
+    st.session_state["detail_filter_val"] = None
+    st.session_state["_nav_idx"] = 0  # Dashboard
+    st.rerun()
 
 # ── Sidebar ────────────────────────────────────────────────────────────────────
 with st.sidebar:
@@ -278,12 +236,15 @@ with st.sidebar:
     st.markdown("### SKYWORKS 作業排程")
     st.markdown("---")
 
+    _PAGE_NAMES = ["\U0001f4ca Dashboard", "\U0001f50d Detail View", "\U0001f5a8 CS Print List"]
+    _nav_idx = st.session_state.get("_nav_idx", 0)
     page = st.radio(
         "頁面導航",
-        ["📊 Dashboard", "📋 Raw Data", "🔍 Detail View", "🖨 CS Print List"],
-        index=st.session_state.get("page_index", 0),
-        key="nav_radio",
+        _PAGE_NAMES,
+        index=_nav_idx,
     )
+    # keep _nav_idx in sync when user clicks manually
+    st.session_state["_nav_idx"] = _PAGE_NAMES.index(page)
 
     st.markdown("---")
     st.markdown("### 上傳資料")
@@ -293,16 +254,14 @@ with st.sidebar:
     st.markdown("---")
     _td = date.today()
     _wl = WEEKDAY_MAP.get(_td.weekday(), "")
-    _wc = {"W1": "一", "W2": "二", "W3": "三", "W4": "四", "W5": "五"}.get(_wl, "")
+    _wc = {"W1":"一","W2":"二","W3":"三","W4":"四","W5":"五"}.get(_wl,"")
     st.markdown(f"**今天：** {_td}  \n**{_wl} (星期{_wc})**")
     st.caption("KPI 截止點：11:30 (New CRSD 基準)")
-
 
 # ── Load data ──────────────────────────────────────────────────────────────────
 if not f1 or not f2:
     st.info("請在左側上傳兩份 Open Delivery Notes Excel 檔案")
     st.stop()
-
 
 @st.cache_data(show_spinner="載入資料中…")
 def _load(b1, b2):
@@ -311,105 +270,89 @@ def _load(b1, b2):
         dfs.append(pd.read_excel(io.BytesIO(b), sheet_name="Open Delivery Notes", header=1))
     return pd.concat(dfs, ignore_index=True)
 
-
 raw_df = _load(f1.read(), f2.read())
 df, customer_col = process_data(raw_df)
-f1.seek(0)
-f2.seek(0)
+f1.seek(0); f2.seek(0)
 
+# ── Shared column refs ─────────────────────────────────────────────────────────
+sp_col    = find_col(df, "shipping point", "ship. pt")
+dn_col    = find_col(df, "delivery")
+etd_col   = find_col(df, "etd")
+box_col   = find_col(df, "件數", "box", "carton", "qty")
+route_col = find_col(df, "route")
+dst_col   = find_col(df, "ship to country", "ship-to country", "dst")
+acct_col  = find_col(df, "delivery account", "account")
 
-def go_to_detail(key, val):
-    st.session_state["detail_filter_key"] = key
-    st.session_state["detail_filter_val"] = val
-    st.session_state["page_index"] = 2
-    st.rerun()
-
-
-# ══════════════════════════════════════════════════════════════════════════════
-# PAGE 1 – DASHBOARD
-# ══════════════════════════════════════════════════════════════════════════════
-if page == "📊 Dashboard":
+# =============================================================================
+# PAGE: DASHBOARD
+# =============================================================================
+if page == "\U0001f4ca Dashboard":
     today = date.today()
+    wl = WEEKDAY_MAP.get(today.weekday(), "")
+    wc = {"W1":"一","W2":"二","W3":"三","W4":"四","W5":"五"}.get(wl,"")
 
     counts  = df["work_status"].value_counts()
-    ws_pick = counts.get("未撿貨", 0)
-    ws_pack = counts.get("已撿待包", 0)
+    ws_pick = counts.get("未揀貨", 0)
+    ws_pack = counts.get("已揀待包", 0)
     ws_go   = counts.get("已包待出_GO", 0)
     ws_x    = counts.get("已包待出_X", 0)
+    boxes_go = int(df[df["work_status"]=="已包待出_GO"][box_col].sum()) if box_col else 0
+    boxes_x  = int(df[df["work_status"]=="已包待出_X"][box_col].sum()) if box_col else 0
 
-    box_col  = find_col(df, "件數", "box", "carton", "qty")
-    boxes_go = int(df[df["work_status"] == "已包待出_GO"][box_col].sum()) if box_col else 0
-    boxes_x  = int(df[df["work_status"] == "已包待出_X"][box_col].sum()) if box_col else 0
-
-    t_pick = len(df[(df["work_status"] == "未撿貨")     & (df["days_to_kpi"] <= 0)])
-    t_pack = len(df[(df["work_status"] == "已撿待包")    & (df["days_to_kpi"] <= 0)])
-    t_x    = len(df[(df["work_status"] == "已包待出_X")  & (df["days_to_kpi"] <= 0)])
-    t_go   = len(df[(df["work_status"] == "已包待出_GO") & (df["days_to_kpi"] <= 0)])
-    t_tot  = t_pick + t_pack + t_x + t_go
-
-    wl = WEEKDAY_MAP.get(today.weekday(), "")
-    wc = {"W1": "一", "W2": "二", "W3": "三", "W4": "四", "W5": "五"}.get(wl, "")
-
-    hc1, hc2 = st.columns([3, 1])
-    with hc1:
-        st.markdown("## SKYWORKS 作業排程")
-    with hc2:
-        st.markdown(f"**{wl} 星期{wc}** · {today}")
+    hc1, hc2 = st.columns([3,1])
+    with hc1: st.markdown("## SKYWORKS 作業排程")
+    with hc2: st.markdown(f"**{wl} 星期{wc}** · {today}")
     st.caption(f"KPI 截止點 11:30 | New CRSD 基準 | 今天 = {wl}")
     st.divider()
 
-    # three status cards
+    # ── Status cards ──
     col1, col2, col3 = st.columns(3, gap="medium")
+
+    BKT_LIST = [
+        ("今日必出","#E24B4A"),
+        ("明天","#EF9F27"),
+        ("本週","#3B6D11"),
+        ("下週","#888"),
+        ("中長期","#aaa"),
+    ]
 
     with col1:
         st.markdown(
             f'<div style="background:#EAF3DE;border-radius:10px;padding:16px;">'
-            f'<div style="font-size:12px;color:#3B6D11;font-weight:600;">① 未撿貨</div>'
+            f'<div style="font-size:12px;color:#3B6D11;font-weight:600;">① 未揀貨</div>'
             f'<div style="font-size:11px;color:#5a7a3a;margin-bottom:8px;">Picking=A Not yet processed</div>'
             f'<div style="font-size:38px;font-weight:600;color:#3B6D11;line-height:1;">{ws_pick}</div>'
             f'<div style="font-size:11px;color:#5a7a3a;margin-top:4px;">DNs 待備貨</div></div>',
-            unsafe_allow_html=True,
-        )
+            unsafe_allow_html=True)
         st.markdown("")
-        pick_df = df[df["work_status"] == "未撿貨"]
-        for bkt, clr in [("今日必出", "#E24B4A"), ("明天", "#EF9F27"),
-                          ("本週", "#3B6D11"), ("下週", "#888"), ("中長期", "#aaa"),
-                          ("待核准出貨", "#A32D2D")]:
-            n = len(pick_df[pick_df["kpi_bucket"] == bkt])
-            if n == 0 and bkt == "待核准出貨":
-                continue
+        pick_df = df[df["work_status"]=="未揀貨"]
+        for bkt, clr in BKT_LIST:
+            n = len(pick_df[pick_df["kpi_bucket"]==bkt])
             st.markdown(
                 f'<span style="color:{clr};font-weight:500;">{bkt}</span>'
                 f'<span style="float:right;font-weight:600;">{n}</span>',
-                unsafe_allow_html=True,
-            )
-        if st.button("詳細查看 未撿貨", key="db_pick"):
-            go_to_detail("work_status", "未撿貨")
+                unsafe_allow_html=True)
+        if st.button("詳細查看 未揀貨", key="db_pick"):
+            go_to_detail("work_status", "未揀貨")
 
     with col2:
         st.markdown(
             f'<div style="background:#FAEEDA;border-radius:10px;padding:16px;">'
-            f'<div style="font-size:12px;color:#854F0B;font-weight:600;">② 已撿待包</div>'
+            f'<div style="font-size:12px;color:#854F0B;font-weight:600;">② 已揀待包</div>'
             f'<div style="font-size:11px;color:#a06020;margin-bottom:8px;">Picking=C Packing=Not Relevant</div>'
             f'<div style="font-size:38px;font-weight:600;color:#854F0B;line-height:1;">{ws_pack}</div>'
             f'<div style="font-size:11px;color:#a06020;margin-top:4px;">DNs 待包裝</div></div>',
-            unsafe_allow_html=True,
-        )
+            unsafe_allow_html=True)
         st.markdown("")
-        pack_df = df[df["work_status"] == "已撿待包"]
-        for bkt, clr in [("今日必出", "#E24B4A"), ("明天", "#EF9F27"),
-                          ("本週", "#3B6D11"), ("下週", "#888"), ("中長期", "#aaa"),
-                          ("待核准出貨", "#A32D2D")]:
-            n = len(pack_df[pack_df["kpi_bucket"] == bkt])
-            if n == 0 and bkt == "待核准出貨":
-                continue
+        pack_df = df[df["work_status"]=="已揀待包"]
+        for bkt, clr in BKT_LIST:
+            n = len(pack_df[pack_df["kpi_bucket"]==bkt])
             st.markdown(
                 f'<span style="color:{clr};font-weight:500;">{bkt}</span>'
                 f'<span style="float:right;font-weight:600;">{n}</span>',
-                unsafe_allow_html=True,
-            )
-        if st.button("詳細查看 已撿待包", key="db_pack"):
-            go_to_detail("work_status", "已撿待包")
+                unsafe_allow_html=True)
+        if st.button("詳細查看 已揀待包", key="db_pack"):
+            go_to_detail("work_status", "已揀待包")
 
     with col3:
         boxes_total = boxes_go + boxes_x
@@ -418,10 +361,9 @@ if page == "📊 Dashboard":
             f'border-radius:10px;padding:16px;">'
             f'<div style="font-size:12px;font-weight:600;">③ 已包待出</div>'
             f'<div style="font-size:11px;color:#555;margin-bottom:8px;">Picking=C Packing=C {boxes_total} boxes</div>'
-            f'<div style="font-size:38px;font-weight:600;line-height:1;">{ws_go + ws_x}</div>'
+            f'<div style="font-size:38px;font-weight:600;line-height:1;">{ws_go+ws_x}</div>'
             f'<div style="font-size:11px;color:#555;margin-top:4px;">DNs 待出貨</div></div>',
-            unsafe_allow_html=True,
-        )
+            unsafe_allow_html=True)
         st.markdown("")
         c3a, c3b = st.columns(2)
         with c3a:
@@ -430,8 +372,7 @@ if page == "📊 Dashboard":
                 f'<div style="color:#042C53;font-size:11px;font-weight:600;">GO 可出</div>'
                 f'<div style="color:#185FA5;font-size:26px;font-weight:600;">{ws_go}</div>'
                 f'<div style="color:#185FA5;font-size:10px;">{boxes_go} boxes</div></div>',
-                unsafe_allow_html=True,
-            )
+                unsafe_allow_html=True)
             if st.button("查看 GO", key="db_go"):
                 go_to_detail("work_status", "已包待出_GO")
         with c3b:
@@ -440,31 +381,36 @@ if page == "📊 Dashboard":
                 f'<div style="color:#791F1F;font-size:11px;font-weight:600;">X 待授權</div>'
                 f'<div style="color:#A32D2D;font-size:26px;font-weight:600;">{ws_x}</div>'
                 f'<div style="color:#A32D2D;font-size:10px;">{boxes_x} boxes</div></div>',
-                unsafe_allow_html=True,
-            )
+                unsafe_allow_html=True)
             if st.button("查看 X", key="db_x"):
                 go_to_detail("work_status", "已包待出_X")
 
     st.divider()
 
-    # today must-ship
+    # ── Today must-ship ──
+    t_pick = len(df[(df["work_status"]=="未揀貨")     & (df["days_to_effective"]<=0)])
+    t_pack = len(df[(df["work_status"]=="已揀待包")  & (df["days_to_effective"]<=0)])
+    t_x    = len(df[(df["work_status"]=="已包待出_X") & (df["days_to_effective"]<=0)])
+    t_go   = len(df[(df["work_status"]=="已包待出_GO")& (df["days_to_effective"]<=0)])
+    t_tot  = t_pick + t_pack + t_x + t_go
+
     st.markdown(
         f'<div style="background:#FCEBEB;border:1px solid #F7C1C1;border-radius:10px;'
         f'padding:14px 20px;margin-bottom:16px;">'
         f'<div style="display:flex;align-items:center;gap:12px;">'
-        f'<span style="font-size:16px;">🔴</span>'
-        f'<span style="font-size:15px;font-weight:600;color:#A32D2D;">今天必出 — New CRSD 到期</span>'
+        f'<span style="font-size:16px;">\U0001f534</span>'
+        f'<span style="font-size:15px;font-weight:600;color:#A32D2D;">🔴 今天必出 — 按出貨排程統計</span>'
         f'<span style="font-size:26px;font-weight:600;color:#A32D2D;margin-left:auto;">{t_tot}</span>'
         f'<span style="font-size:12px;color:#A32D2D;">DNs</span>'
         f'</div></div>',
-        unsafe_allow_html=True,
-    )
+        unsafe_allow_html=True)
+
     tc1, tc2, tc3, tc4 = st.columns(4)
-    for col, lbl, val, sub, act, bg, fg in [
-        (tc1, "未撿貨",      t_pick, "逾期未備",  "立即備貨",   "#C0DD97", "#27500A"),
-        (tc2, "已撿待包",    t_pack, "待包裝",     "立即包裝",   "#FAC775", "#633806"),
-        (tc3, "已包待出 X",  t_x,    "等授權",     "催授權",     "#F7C1C1", "#791F1F"),
-        (tc4, "已包待出 GO", t_go,   "可立即出貨", "立即出貨",   "#378ADD", "#fff"),
+    for col, lbl, val, ws_key, sub, act, bg, fg in [
+        (tc1, "未揀貨",      t_pick, "未揀貨",      "逾期未備",   "立即備貨",   "#C0DD97","#27500A"),
+        (tc2, "已揀待包",    t_pack, "已揀待包",    "待包裝",     "立即包裝",   "#FAC775","#633806"),
+        (tc3, "已包待出 X",  t_x,    "已包待出_X",  "等授權",     "催授權",         "#F7C1C1","#791F1F"),
+        (tc4, "已包待出 GO", t_go,   "已包待出_GO", "可立即出貨","立即出貨","#378ADD","#fff"),
     ]:
         with col:
             st.markdown(
@@ -475,381 +421,247 @@ if page == "📊 Dashboard":
                 f'<div style="font-size:10px;color:#888;margin:4px 0;">{sub}</div>'
                 f'<div style="background:{bg};color:{fg};font-size:10px;padding:3px 8px;'
                 f'border-radius:6px;display:inline-block;font-weight:500;">{act}</div></div>',
-                unsafe_allow_html=True,
-            )
+                unsafe_allow_html=True)
+            if st.button(f"查看細項", key=f"td_{ws_key}"):
+                go_to_detail("today_ws", ws_key)
 
     st.divider()
 
-    # future planning
+    # ── Future planning ──
     st.markdown("#### 未來 KPI 規劃")
     fc1, fc2, fc3, fc4 = st.columns(4)
     for col, lbl, dr, clr in [
-        (fc1, "明天",   (1, 1),    "#854F0B"),
-        (fc2, "本週",   (2, 4),    "#3B6D11"),
-        (fc3, "下週",   (5, 11),   "#185FA5"),
-        (fc4, "中長期", (12, 999), "#888"),
+        (fc1, "明天",   (1,1),    "#854F0B"),
+        (fc2, "本週",   (2,4),    "#3B6D11"),
+        (fc3, "下週",   (5,11),   "#185FA5"),
+        (fc4, "中長期",(12,999),"#888"),
     ]:
         with col:
-            m = (df["days_to_effective"] >= dr[0]) & (df["days_to_effective"] <= dr[1])
+            m   = (df["days_to_effective"]>=dr[0])&(df["days_to_effective"]<=dr[1])
             sub = df[m]
             n   = len(sub)
             bd  = sub["work_status"].value_counts().to_dict()
             ds  = "  ".join(
                 f'<span style="color:{WS_COLORS.get(k,"#888")};font-size:10px;">{k} {v}</span>'
-                for k, v in bd.items()
-            )
+                for k,v in bd.items())
             st.markdown(
                 f'<div style="border:0.5px solid #ddd;border-radius:8px;padding:12px;">'
                 f'<div style="font-size:12px;font-weight:500;color:{clr};">{lbl}</div>'
                 f'<div style="font-size:26px;font-weight:600;color:{clr};line-height:1.1;">{n}</div>'
                 f'<div style="margin-top:4px;">{ds}</div></div>',
-                unsafe_allow_html=True,
-            )
+                unsafe_allow_html=True)
 
     st.divider()
 
-    # SP=X section
-    st.markdown("#### Special Processing = X — 待核准出貨分析")
-    x_df    = df[df["Special Processing"].astype(str).str.strip() == "X"].copy()
-    x_total = len(x_df)
-    x_boxes = int(x_df[box_col].sum()) if box_col else 0
-
-    if x_total == 0:
-        st.success("目前無 Special Processing = X 的訂單")
-    else:
-        x_packed   = len(x_df[x_df["work_status"] == "已包待出_X"])
-        x_need_pk  = len(x_df[x_df["work_status"] == "已撿待包"])
-        x_not_pick = len(x_df[x_df["work_status"] == "未撿貨"])
-
-        xm1, xm2, xm3, xm4 = st.columns(4)
-        for col, lbl, val, clr, sub in [
-            (xm1, "X 總計",        x_total,    "#791F1F", f"{x_boxes} boxes"),
-            (xm2, "已包待授權",    x_packed,   "#A32D2D", "已包待出_X"),
-            (xm3, "需包裝 (已撿)", x_need_pk,  "#854F0B", "已撿待包"),
-            (xm4, "需備貨 (未撿)", x_not_pick, "#3B6D11", "未撿貨"),
-        ]:
-            with col:
-                st.markdown(
-                    f'<div style="border-left:4px solid {clr};padding:8px 12px;'
-                    f'background:#fafafa;border-radius:4px;">'
-                    f'<div style="font-size:11px;color:{clr};font-weight:600;">{lbl}</div>'
-                    f'<div style="font-size:24px;font-weight:600;color:{clr};">{val}</div>'
-                    f'<div style="font-size:10px;color:#888;">{sub}</div></div>',
-                    unsafe_allow_html=True,
-                )
-
-        dn_col_x  = find_col(df, "delivery")
-        sp_col_x  = find_col(df, "shipping point", "ship. pt")
-        xcols_raw = [sp_col_x, dn_col_x, "customer_display",
-                     "New CRSD", "DN Created Date/Time",
-                     "effective_ship_date", "dispatch_rule_display",
-                     "work_status", "priority", box_col]
-        seen_x  = set()
-        x_cols  = [c for c in xcols_raw
-                   if c and c in x_df.columns and not (c in seen_x or seen_x.add(c))]
-        x_sorted = x_df.sort_values(["days_to_kpi", "customer_display"])[x_cols]
-
-        def _sx(row):
-            ws = row.get("work_status", "")
-            if ws == "已包待出_X":
-                return ["background-color:#FCEBEB"] * len(row)
-            if ws == "已撿待包":
-                return ["background-color:#FAEEDA"] * len(row)
-            if ws == "未撿貨":
-                return ["background-color:#EAF3DE"] * len(row)
-            return [""] * len(row)
-
-        st.caption("KPI Bucket 一律為「待核准出貨」| effective_ship_date = 依 dispatch rule 最近可出日")
-        st.dataframe(x_sorted.style.apply(_sx, axis=1), use_container_width=True, height=320)
-
-        with st.expander("X 訂單客戶彙總", expanded=False):
-            xagg = (
-                x_df.groupby("customer_display")
-                .agg(
-                    DNs=("customer_display", "count"),
-                    Min_CRSD=("New CRSD", "min"),
-                    Max_CRSD=("New CRSD", "max"),
-                    Earliest_Ship=("effective_ship_date", "min"),
-                    Dispatch=("dispatch_rule_display",
-                              lambda s: s.mode()[0] if not s.empty else ""),
-                    Stage=("work_status",
-                           lambda s: ", ".join(s.unique()[:3])),
-                )
-                .sort_values("Min_CRSD")
-                .reset_index()
-            )
-            if box_col:
-                xb = x_df.groupby("customer_display")[box_col].sum().rename("Boxes")
-                xagg = xagg.merge(xb, on="customer_display", how="left")
-            st.dataframe(xagg, use_container_width=True)
-
-    st.divider()
-
-    # SP breakdown
-    st.markdown("#### Shipping Point 分佈")
-    sp_col_db = find_col(df, "shipping point", "ship. pt")
-    if sp_col_db:
-        sp_pivot = df.groupby([sp_col_db, "work_status"]).size().unstack(fill_value=0)
+    # ── SP breakdown ──
+    if sp_col:
+        st.markdown("#### Shipping Point 分佈")
+        sp_pivot = df.groupby([sp_col,"work_status"]).size().unstack(fill_value=0)
         st.dataframe(sp_pivot, use_container_width=True)
 
-
-# ══════════════════════════════════════════════════════════════════════════════
-# PAGE 2 – RAW DATA
-# ══════════════════════════════════════════════════════════════════════════════
-elif page == "📋 Raw Data":
-    st.markdown("## 📋 Raw Data — 完整訂單列表")
-
-    sp_col = find_col(df, "shipping point", "ship. pt")
-    dn_col = find_col(df, "delivery")
-
-    with st.expander("篩選條件", expanded=True):
-        fc1, fc2, fc3 = st.columns(3)
-        with fc1:
-            sel_ws = st.multiselect("作業狀態", options=sorted(df["work_status"].dropna().unique()), default=[])
-            sel_p  = st.multiselect("優先級",   options=["P1", "P2", "P3", "P4"], default=[])
-        with fc2:
-            sp_opts = sorted(df[sp_col].dropna().unique()) if sp_col else []
-            sel_sp  = st.multiselect("Shipping Point", options=sp_opts, default=[])
-            sel_bkt = st.multiselect("KPI 區間",
-                                     options=["今日必出", "明天", "本週", "下週", "中長期", "待核准出貨"],
-                                     default=[])
-        with fc3:
-            sel_cust  = st.multiselect("客戶", options=sorted(df["customer_display"].dropna().unique()), default=[])
-            sel_dt    = st.checkbox("僅今日 dispatch", value=False)
-            sel_xonly = st.checkbox("僅 Special Processing = X", value=False)
-
-        cr1, cr2 = st.columns(2)
-        with cr1:
-            date_from = st.date_input("KPI 日期 From", value=df["kpi_date"].dropna().min())
-        with cr2:
-            date_to   = st.date_input("KPI 日期 To",   value=df["kpi_date"].dropna().max())
-
-    mask = pd.Series([True] * len(df), index=df.index)
-    if sel_ws:
-        mask &= df["work_status"].isin(sel_ws)
-    if sel_p:
-        mask &= df["priority"].isin(sel_p)
-    if sel_sp and sp_col:
-        mask &= df[sp_col].isin(sel_sp)
-    if sel_bkt:
-        mask &= df["kpi_bucket"].isin(sel_bkt)
-    if sel_cust:
-        mask &= df["customer_display"].isin(sel_cust)
-    if sel_dt:
-        mask &= df["dispatch_today"]
-    if sel_xonly:
-        mask &= df["Special Processing"].astype(str).str.strip() == "X"
-    mask &= df["kpi_date"].apply(lambda d: date_from <= d <= date_to if pd.notna(d) else False)
-
-    filtered = df[mask].copy()
-    st.caption(f"顯示 {len(filtered)} / {len(df)} 筆")
-
-    dcols = [c for c in [
-        sp_col, dn_col, "customer_display",
-        "New CRSD", "kpi_date", "effective_ship_date", "days_to_kpi",
-        "work_status", "priority", "kpi_bucket",
-        "dispatch_rule_display", "dispatch_today",
-        "Picking Status", "Packing Status", "Special Processing",
-    ] if c and c in filtered.columns]
-
-    def _cws(v):
-        c = WS_COLORS.get(v, "")
-        return f"color:{c};font-weight:bold" if c else ""
-
-    def _cp(v):
-        c = P_COLORS.get(v, "")
-        return f"color:{c};font-weight:bold" if c else ""
-
-    st.dataframe(
-        filtered[dcols].style.map(_cws, subset=["work_status"]).map(_cp, subset=["priority"]),
-        use_container_width=True, height=500,
-    )
-    csv = filtered[dcols].to_csv(index=False, encoding="utf-8-sig")
-    st.download_button("下載篩選結果 CSV", data=csv.encode("utf-8-sig"),
-                       file_name=f"opcs_raw_{date.today()}.csv", mime="text/csv")
-
-
-# ══════════════════════════════════════════════════════════════════════════════
-# PAGE 3 – DETAIL VIEW
-# ══════════════════════════════════════════════════════════════════════════════
-elif page == "🔍 Detail View":
-    st.markdown("## 🔍 Detail View")
+# =============================================================================
+# PAGE: DETAIL VIEW  (merged Raw Data + Detail View)
+# =============================================================================
+elif page == "\U0001f50d Detail View":
+    st.markdown("## \U0001f50d Detail View")
 
     dfk = st.session_state.get("detail_filter_key")
     dfv = st.session_state.get("detail_filter_val")
-    sp_col = find_col(df, "shipping point", "ship. pt")
 
-    c1, c2, c3, c4 = st.columns(4)
-    with c1:
-        ws_opts = sorted(df["work_status"].dropna().unique())
-        dws = [dfv] if dfk == "work_status" and dfv in ws_opts else []
-        sel_ws_d = st.multiselect("作業狀態", options=ws_opts, default=dws, key="d_ws")
-    with c2:
-        p_opts = ["P1", "P2", "P3", "P4", "P5", "P6", "P7"]
-        dp = [dfv] if dfk == "priority" and dfv in p_opts else []
-        sel_p_d = st.multiselect("Priority", options=p_opts, default=dp, key="d_p")
-    with c3:
-        cu_opts = sorted(df["customer_display"].dropna().unique())
-        dcu = [dfv] if dfk == "customer" and dfv in cu_opts else []
-        sel_cu_d = st.multiselect("客戶", options=cu_opts, default=dcu, key="d_cu")
-    with c4:
-        sp_opts = sorted(df[sp_col].dropna().unique()) if sp_col else []
-        dsp = [dfv] if dfk == "sp" and dfv in sp_opts else []
-        sel_sp_d = st.multiselect("Shipping Point", options=sp_opts, default=dsp, key="d_sp")
+    # Back button
+    if st.button("← 返回 Dashboard"):
+        go_to_dashboard()
 
-    md = pd.Series([True] * len(df), index=df.index)
-    if sel_ws_d:
-        md &= df["work_status"].isin(sel_ws_d)
-    if sel_p_d:
-        md &= df["priority"].isin(sel_p_d)
-    if sel_cu_d:
-        md &= df["customer_display"].isin(sel_cu_d)
-    if sel_sp_d and sp_col:
-        md &= df[sp_col].isin(sel_sp_d)
+    st.markdown("---")
 
-    sub_d = df[md].copy()
-    if dfv:
-        st.info(f"Dashboard 來源：**{dfv}** → {len(sub_d)} 筆")
 
-    d1, d2, d3, d4 = st.columns(4)
-    for col, ws, lbl in [
-        (d1, "未撿貨",      "未撿貨"),
-        (d2, "已撿待包",    "已撿待包"),
-        (d3, "已包待出_GO", "已包待出 GO"),
-        (d4, "已包待出_X",  "已包待出 X"),
+    # ── Filters ──
+    with st.expander("\U0001f50e 篩選條件", expanded=True):
+        fc1, fc2, fc3, fc4 = st.columns(4)
+        with fc1:
+            ws_opts = sorted(df["work_status"].dropna().unique())
+            d_ws = []
+            if dfk in ("work_status","today_ws") and dfv in ws_opts:
+                d_ws = [dfv]
+            sel_ws = st.multiselect("作業狀態", ws_opts, default=d_ws, key="dv_ws")
+
+            p_opts = ["P1","P2","P3","P4","P5","P6","P7"]
+            d_p = [dfv] if dfk=="priority" and dfv in p_opts else []
+            sel_p = st.multiselect("Priority", p_opts, default=d_p, key="dv_p")
+
+        with fc2:
+            bkt_opts = ["今日必出","明天","本週","下週","中長期"]
+            d_bkt = [dfv] if dfk=="kpi_bucket" and dfv in bkt_opts else []
+            sel_bkt = st.multiselect("KPI 區間", bkt_opts, default=d_bkt, key="dv_bkt")
+
+            sp_opts = sorted(df[sp_col].dropna().unique()) if sp_col else []
+            d_sp = [dfv] if dfk=="sp" and dfv in sp_opts else []
+            sel_sp = st.multiselect("Shipping Point", sp_opts, default=d_sp, key="dv_sp")
+
+        with fc3:
+            cu_opts = sorted(df["customer_display"].dropna().unique())
+            d_cu = [dfv] if dfk=="customer" and dfv in cu_opts else []
+            sel_cu = st.multiselect("客戶", cu_opts, default=d_cu, key="dv_cu")
+
+            sel_dt = st.checkbox("僅今日 dispatch", value=False, key="dv_dt")
+            sel_xonly = st.checkbox("僅 SP=X", value=False, key="dv_x")
+
+        with fc4:
+            kpi_dates = df["kpi_date"].dropna()
+            d_from = st.date_input("KPI From", value=kpi_dates.min() if len(kpi_dates) else date.today(), key="dv_df")
+            d_to   = st.date_input("KPI To",   value=kpi_dates.max() if len(kpi_dates) else date.today(), key="dv_dt2")
+
+    # Build mask — date filter only if user changed from dataset defaults
+    kpi_min = df["kpi_date"].dropna().min() if df["kpi_date"].notna().any() else date.today()
+    kpi_max = df["kpi_date"].dropna().max() if df["kpi_date"].notna().any() else date.today()
+    date_filtered = (d_from > kpi_min) or (d_to < kpi_max)
+
+    mask = pd.Series([True]*len(df), index=df.index)
+    if sel_ws:             mask &= df["work_status"].isin(sel_ws)
+    if sel_p:              mask &= df["priority"].isin(sel_p)
+    if sel_bkt:            mask &= df["kpi_bucket"].isin(sel_bkt)
+    if sel_sp and sp_col:  mask &= df[sp_col].isin(sel_sp)
+    if sel_cu:             mask &= df["customer_display"].isin(sel_cu)
+    if sel_dt:             mask &= df["dispatch_today"]
+    if sel_xonly:          mask &= df["Special Processing"].astype(str).str.strip()=="X"
+    if date_filtered:
+        # NaN kpi_date rows pass through (not excluded by date filter)
+        mask &= df["kpi_date"].apply(
+            lambda d: (d_from <= d <= d_to) if pd.notna(d) else True)
+
+    # today_ws pre-filter from dashboard click
+    if dfk == "today_ws" and dfv:
+        mask &= df["work_status"] == dfv
+        mask &= df["days_to_effective"] <= 0
+
+    filtered = df[mask].copy()
+
+    # ── Summary counts (filtered) ──
+    sm1, sm2, sm3, sm4 = st.columns(4)
+    for col, ws, lbl, bg, fg in [
+        (sm1, "未揀貨",      "未揀貨",      "#EAF3DE","#3B6D11"),
+        (sm2, "已揀待包",    "已揀待包",    "#FAEEDA","#854F0B"),
+        (sm3, "已包待出_GO", "已包待出 GO", "#E6F1FB","#185FA5"),
+        (sm4, "已包待出_X",  "已包待出 X",  "#FCEBEB","#A32D2D"),
     ]:
         with col:
-            n  = len(sub_d[sub_d["work_status"] == ws])
-            clr = WS_COLORS.get(ws, "#888")
+            n = len(filtered[filtered["work_status"]==ws])
+            tot = len(df[df["work_status"]==ws])
             st.markdown(
-                f'<div style="border-left:4px solid {clr};padding:8px 12px;'
-                f'background:#fafafa;border-radius:4px;">'
-                f'<div style="font-size:11px;color:{clr};font-weight:600;">{lbl}</div>'
-                f'<div style="font-size:24px;font-weight:600;">{n}</div></div>',
-                unsafe_allow_html=True,
-            )
+                f'<div style="background:{bg};border-radius:8px;padding:10px;text-align:center;">'                f'<div style="font-size:11px;color:{fg};font-weight:600;">{lbl}</div>'                f'<div style="font-size:28px;font-weight:700;color:{fg};">{n}</div>'                f'<div style="font-size:10px;color:#888;">共 {tot} 筆</div>'                f'</div>',
+                unsafe_allow_html=True)
+    st.markdown("")
+    st.caption(f"篩選結果 {len(filtered)} / {len(df)} 筆")
 
-    box_col_d  = find_col(df, "件數", "box", "carton")
-    wt_col_d   = find_col(df, "weight", "wt")
-    dn_col_d   = find_col(df, "delivery")
-
-    dcols_d = [c for c in [
-        sp_col, dn_col_d, "customer_display",
+    dcols = [c for c in [
+        sp_col, dn_col, "customer_display",
         "New CRSD", "kpi_date", "effective_ship_date",
-        "days_to_kpi", "kpi_bucket",
-        "work_status", "priority",
+        "days_to_kpi", "days_to_effective",
+        "work_status", "priority", "kpi_bucket",
         "dispatch_rule_display", "dispatch_today",
-        "Picking Status", "Packing Status", "Special Processing",
-        box_col_d, wt_col_d,
-    ] if c and c in sub_d.columns]
-    seen_d = set()
-    dcols_d = [c for c in dcols_d if not (c in seen_d or seen_d.add(c))]
+        "Picking Status", "Packing Status",
+        "sp_display", box_col,
+    ] if c and c in filtered.columns]
+    seen = set(); dcols = [c for c in dcols if not (c in seen or seen.add(c))]
 
+    def _cws(v):
+        c = WS_COLORS.get(v,""); return f"color:{c};font-weight:bold" if c else ""
+    def _cp(v):
+        c = P_COLORS.get(v,"");  return f"color:{c};font-weight:bold" if c else ""
     def _hr(row):
-        bg = {"未撿貨": "#EAF3DE", "已撿待包": "#FAEEDA",
-              "已包待出_GO": "#E6F1FB", "已包待出_X": "#FCEBEB"}.get(row.get("work_status", ""), "")
+        bg = {"未揀貨":"#EAF3DE","已揀待包":"#FAEEDA",
+              "已包待出_GO":"#E6F1FB","已包待出_X":"#FCEBEB"}.get(row.get("work_status",""),"")
         return [f"background-color:{bg}" if bg else "" for _ in row]
 
-    st.dataframe(sub_d[dcols_d].style.apply(_hr, axis=1), use_container_width=True, height=520)
+    st.dataframe(
+        filtered[dcols].style.apply(_hr,axis=1).map(_cws,subset=["work_status"]).map(_cp,subset=["priority"]),
+        use_container_width=True, height=520)
 
-    csv_d = sub_d[dcols_d].to_csv(index=False, encoding="utf-8-sig")
-    st.download_button("下載此列表 CSV", data=csv_d.encode("utf-8-sig"),
-                       file_name=f"detail_{dfv or 'all'}_{date.today()}.csv", mime="text/csv")
+    csv = filtered[dcols].to_csv(index=False, encoding="utf-8-sig")
+    st.download_button(
+        "下載 CSV",
+        data=csv.encode("utf-8-sig"),
+        file_name=f"detail_{date.today()}.csv",
+        mime="text/csv")
 
-    if st.button("返回 Dashboard"):
-        st.session_state.pop("detail_filter_key", None)
-        st.session_state.pop("detail_filter_val", None)
-        st.session_state["page_index"] = 0
-        st.rerun()
+    if st.button("← 返回 Dashboard (下方)", key="back_bot"):
+        go_to_dashboard()
 
+# =============================================================================
+# PAGE: CS PRINT LIST
+# =============================================================================
+elif page == "\U0001f5a8 CS Print List":
+    today = date.today()
+    today_w = WEEKDAY_MAP.get(today.weekday(),"")
+    wd_cn = {"W1":"一","W2":"二","W3":"三","W4":"四","W5":"五"}.get(today_w,"")
 
-# ══════════════════════════════════════════════════════════════════════════════
-# PAGE 4 – CS PRINT LIST
-# ══════════════════════════════════════════════════════════════════════════════
-elif page == "🖨 CS Print List":
-    st.markdown("## 🖨 CS 出貨清單 — 依 Dispatch 規則")
+    st.markdown("## \U0001f5a8 CS 出貨清單 — 依 Dispatch 規則")
+    st.info(
+        "⚠️ 注意：未包貨完成（Packing 未結束）的訂單，"
+        "將不在此清單中。請確認已包待出_GO 訂單再安排出貨。"
+    )
 
-    today   = date.today()
-    today_w = WEEKDAY_MAP.get(today.weekday(), "")
-    wd_cn   = {"W1": "一", "W2": "二", "W3": "三", "W4": "四", "W5": "五"}.get(today_w, "")
-
-    sp_col    = find_col(df, "shipping point", "ship. pt")
-    dn_col    = find_col(df, "delivery")
-    etd_col   = find_col(df, "etd")
-    box_col   = find_col(df, "件數", "box", "carton", "qty")
-    route_col = find_col(df, "route")
-    dst_col   = find_col(df, "ship to country", "ship-to country", "dst", "destination")
-    acct_col  = find_col(df, "delivery account", "account")
-
-    ct1, ct2 = st.columns([2, 1])
+    ct1, ct2 = st.columns([2,1])
     with ct1:
         show_mode = st.radio(
             "顯示模式",
             ["今日 Dispatch 可出", "全部 GO 訂單", "今日 KPI 全部"],
-            horizontal=True,
-        )
+            horizontal=True)
     with ct2:
         show_x = st.checkbox("包含 X 待授權（標注警示）", value=True)
 
     if show_mode == "今日 Dispatch 可出":
-        mp    = df["dispatch_today"] & (df["work_status"] == "已包待出_GO")
+        mp    = df["dispatch_today"] & (df["work_status"]=="已包待出_GO")
         title = f"今日 ({today_w} 星期{wd_cn}) Dispatch — GO 可出"
     elif show_mode == "全部 GO 訂單":
-        mp    = df["work_status"] == "已包待出_GO"
+        mp    = df["work_status"]=="已包待出_GO"
         title = "全部 GO 待出訂單"
     else:
-        mp    = df["days_to_kpi"] <= 0
+        mp    = df["days_to_kpi"]<=0
         title = f"今日 KPI 到期全部（{today}）"
 
     if show_x:
-        mx       = (df["work_status"] == "已包待出_X") & (df["days_to_kpi"] <= 0)
-        print_df = df[mp | mx].copy()
+        mx       = (df["work_status"]=="已包待出_X")&(df["days_to_kpi"]<=0)
+        print_df = df[mp|mx].copy()
     else:
         print_df = df[mp].copy()
 
-    po = {"P1": 0, "P2": 1, "P3": 2, "P4": 3, "P5": 4, "P6": 5, "P7": 6}
+    po = {"P1":0,"P2":1,"P3":2,"P4":3,"P5":4,"P6":5,"P7":6}
     print_df["_po"] = print_df["priority"].map(po).fillna(9)
-    print_df = print_df.sort_values(["_po", "days_to_kpi", "customer_display"])
+    print_df = print_df.sort_values(["_po","days_to_kpi","customer_display"])
 
     st.markdown(f"### {title}")
     st.caption(f"共 {len(print_df)} 筆 | 產生時間：{datetime.now().strftime('%Y-%m-%d %H:%M')}")
 
-    pcols_raw = [
-        dn_col, sp_col, etd_col, "DN Created Date/Time", "New CRSD",
-        "customer_display", box_col, route_col, dst_col, acct_col,
-        "work_status", "priority", "dispatch_rule_display",
-        "Special Processing", "effective_ship_date",
-    ]
-    seen_p  = set()
-    pcols   = [c for c in pcols_raw
-               if c and c in print_df.columns and not (c in seen_p or seen_p.add(c))]
+    pcols_raw = [dn_col, sp_col, etd_col, "DN Created Date/Time", "New CRSD",
+                 "customer_display", box_col, route_col, dst_col, acct_col,
+                 "work_status","priority","dispatch_rule_display","sp_display","effective_ship_date"]
+    seen_p = set()
+    pcols = [c for c in pcols_raw if c and c in print_df.columns and not (c in seen_p or seen_p.add(c))]
 
-    def _sp(row):
-        ws = row.get("work_status", "")
-        if ws == "已包待出_X":
-            return ["background-color:#FCEBEB;color:#A32D2D"] * len(row)
-        if ws == "已包待出_GO":
-            return ["background-color:#E6F1FB"] * len(row)
-        if row.get("days_to_kpi", 999) <= 0:
-            return ["background-color:#FFF5F5"] * len(row)
-        return [""] * len(row)
+    def _sp2(row):
+        ws = row.get("work_status","")
+        if ws=="已包待出_X":
+            return ["background-color:#FCEBEB;color:#A32D2D"]*len(row)
+        if ws=="已包待出_GO":
+            return ["background-color:#E6F1FB"]*len(row)
+        if row.get("days_to_kpi",999)<=0:
+            return ["background-color:#FFF5F5"]*len(row)
+        return [""]*len(row)
 
-    st.dataframe(print_df[pcols].style.apply(_sp, axis=1), use_container_width=True, height=480)
+    st.dataframe(print_df[pcols].style.apply(_sp2,axis=1), use_container_width=True, height=480)
 
     st.markdown("#### 客戶彙總")
     agg_d = {
-        "DNs":      ("customer_display", "count"),
-        "Dispatch": ("dispatch_rule_display", lambda x: x.mode()[0] if not x.empty else ""),        "Status":   ("work_status", lambda x: ", ".join(x.unique()[:2])),
-        "Min_CRSD": ("New CRSD", "min"),
+        "DNs":      ("customer_display","count"),
+        "Dispatch": ("dispatch_rule_display", lambda x: x.mode()[0] if not x.empty else ""),
+        "Status":   ("work_status", lambda x: ", ".join(x.unique()[:2])),
+        "Min_CRSD": ("New CRSD","min"),
     }
-    if box_col:
-        agg_d["Boxes"] = (box_col, "sum")
-
+    if box_col: agg_d["Boxes"] = (box_col,"sum")
     summary = (
-        print_df.groupby("customer_display")
-        .agg(**agg_d)
-        .sort_values("DNs", ascending=False)
-        .reset_index()
+        print_df.groupby("customer_display").agg(**agg_d)
+        .sort_values("DNs",ascending=False).reset_index()
     )
     st.dataframe(summary, use_container_width=True)
 
@@ -857,11 +669,8 @@ elif page == "🖨 CS Print List":
     dl1, dl2 = st.columns(2)
     with dl1:
         csv_p = print_df[pcols].to_csv(index=False, encoding="utf-8-sig")
-        st.download_button(
-            "Download CSV",
-            data=csv_p.encode("utf-8-sig"),
-            file_name=f"cs_print_{today}.csv",
-            mime="text/csv",
-        )
+        st.download_button("下載出貨清單 CSV",
+                           data=csv_p.encode("utf-8-sig"),
+                           file_name=f"cs_print_{today}.csv", mime="text/csv")
     with dl2:
-        st.info("Ctrl+P (Windows) / Cmd+P (Mac) to print current view")
+        st.info("Ctrl+P (Windows) / Cmd+P (Mac) 可列印目前畫面")
