@@ -126,6 +126,15 @@ def process_data(raw_df):
         return "其他"
     df["work_status"] = df.apply(_ws, axis=1)
 
+    # step 2b – CIP override: non-TW CIP orders skip dispatch rule, ship direct on CRSD
+    df["cip_override"] = False
+    if incoterms_col and incoterms_col in df.columns and ship_country_col and ship_country_col in df.columns:
+        df["cip_override"] = (
+            df[incoterms_col].astype(str).str.strip().str.upper() == "CIP"
+        ) & (
+            df[ship_country_col].astype(str).str.strip().str.upper() != "TW"
+        )
+
     # step 3 – dispatch rule
     def _rule(customer, ship_country):
         cu = str(customer).upper()
@@ -142,11 +151,13 @@ def process_data(raw_df):
         lambda r: _rule(r.get(customer_col, ""),
                         r.get(ship_country_col, "") if ship_country_col else ""), axis=1)
 
-    def _dispatch_today(rule):
+    def _dispatch_today(row):
+        if row["cip_override"]: return True   # CIP non-TW always dispatchable
+        rule = row["dispatch_rule"]
         if not rule: return False
         if rule in ("Everyday", "FEDEX", "DHL", "T3EX"): return True
         return today_w in [x.strip() for x in rule.split("/")]
-    df["dispatch_today"] = df["dispatch_rule"].apply(_dispatch_today)
+    df["dispatch_today"] = df.apply(_dispatch_today, axis=1)
     df["today_w"] = today_w
 
     # step 4 – kpi_date (11:30 cutoff for GO orders)
@@ -169,7 +180,10 @@ def process_data(raw_df):
     def _eff(row):
         kd = row["kpi_date"]
         if pd.isna(kd): return kd
-        return next_dispatch_day(max(kd, today), row["dispatch_rule"])
+        base = max(kd, today)
+        if row["cip_override"]:
+            return base  # CIP non-TW: ship direct on CRSD, no dispatch-day constraint
+        return next_dispatch_day(base, row["dispatch_rule"])
     df["effective_ship_date"] = df.apply(_eff, axis=1)
     df["days_to_effective"] = df["effective_ship_date"].apply(
         lambda d: (d - today).days if pd.notna(d) else 999)
@@ -214,6 +228,9 @@ def process_data(raw_df):
 
     df["dispatch_rule_display"] = df["dispatch_rule"].apply(
         lambda r: "" if r == "Everyday" else r)
+
+    # CIP direct-ship display tag
+    df["cip_direct"] = df["cip_override"].map({True: "CIP直出", False: ""})
 
     return df, customer_col
 
@@ -268,11 +285,10 @@ def _load(b1, b2):
     dfs = []
     for b in [b1, b2]:
         dfs.append(pd.read_excel(io.BytesIO(b), sheet_name="Open Delivery Notes", header=1))
-    return pd.concat(dfs, ignore_index=True)
+    raw = pd.concat(dfs, ignore_index=True)
+    return process_data(raw)  # process inside cache — only runs when files change
 
-raw_df = _load(f1.read(), f2.read())
-df, customer_col = process_data(raw_df)
-f1.seek(0); f2.seek(0)
+df, customer_col = _load(f1.getvalue(), f2.getvalue())
 
 # ── Shared column refs ─────────────────────────────────────────────────────────
 sp_col    = find_col(df, "shipping point", "ship. pt")
@@ -489,6 +505,8 @@ elif page == "\U0001f50d Detail View":
             d_p = [dfv] if dfk=="priority" and dfv in p_opts else []
             sel_p = st.multiselect("Priority", p_opts, default=d_p, key="dv_p")
 
+            dn_search = st.text_input("搜尋 DN", value="", key="dv_dn", placeholder="輸入 DN 號碼…")
+
         with fc2:
             bkt_opts = ["今日必出","明天","本週","下週","中長期"]
             d_bkt = [dfv] if dfk=="kpi_bucket" and dfv in bkt_opts else []
@@ -524,6 +542,8 @@ elif page == "\U0001f50d Detail View":
     if sel_cu:             mask &= df["customer_display"].isin(sel_cu)
     if sel_dt:             mask &= df["dispatch_today"]
     if sel_xonly:          mask &= df["Special Processing"].astype(str).str.strip()=="X"
+    if dn_search and dn_col:
+        mask &= df[dn_col].astype(str).str.contains(dn_search.strip(), case=False, na=False)
     if date_filtered:
         # NaN kpi_date rows pass through (not excluded by date filter)
         mask &= df["kpi_date"].apply(
@@ -558,7 +578,7 @@ elif page == "\U0001f50d Detail View":
         "New CRSD", "kpi_date", "effective_ship_date",
         "days_to_kpi", "days_to_effective",
         "work_status", "priority", "kpi_bucket",
-        "dispatch_rule_display", "dispatch_today",
+        "dispatch_rule_display", "cip_direct", "dispatch_today",
         "Picking Status", "Packing Status",
         "sp_display", box_col,
     ] if c and c in filtered.columns]
@@ -568,14 +588,9 @@ elif page == "\U0001f50d Detail View":
         c = WS_COLORS.get(v,""); return f"color:{c};font-weight:bold" if c else ""
     def _cp(v):
         c = P_COLORS.get(v,"");  return f"color:{c};font-weight:bold" if c else ""
-    def _hr(row):
-        bg = {"未揀貨":"#EAF3DE","已揀待包":"#FAEEDA",
-              "已包待出_GO":"#E6F1FB","已包待出_X":"#FCEBEB"}.get(row.get("work_status",""),"")
-        return [f"background-color:{bg}" if bg else "" for _ in row]
 
-    st.dataframe(
-        filtered[dcols].style.apply(_hr,axis=1).map(_cws,subset=["work_status"]).map(_cp,subset=["priority"]),
-        use_container_width=True, height=520)
+    _style = filtered[dcols].style.map(_cws, subset=["work_status"]).map(_cp, subset=["priority"])
+    st.dataframe(_style, use_container_width=True, height=520)
 
     csv = filtered[dcols].to_csv(index=False, encoding="utf-8-sig")
     st.download_button(
@@ -627,6 +642,33 @@ elif page == "\U0001f5a8 CS Print List":
     else:
         print_df = df[mp].copy()
 
+    print_df["exc_flag"] = ""
+
+    # ── Manual exception section ──────────────────────────────────────────────
+    with st.expander("\U0001f527 手動加入例外出貨（不受 Dispatch Rule 限制）", expanded=False):
+        exc_go_df = df[(df["work_status"]=="已包待出_GO") & ~df.index.isin(print_df.index)]
+        exc_cu_opts = sorted(exc_go_df["customer_display"].dropna().unique())
+        exc_dn_opts = sorted(exc_go_df[dn_col].astype(str).unique()) if dn_col else []
+
+        sel_all_cu = st.checkbox("全選所有客戶", key="exc_all_cu")
+        if sel_all_cu:
+            sel_exc_cu = exc_cu_opts
+            st.caption(f"已選全部 {len(exc_cu_opts)} 位客戶 ({len(exc_go_df)} DNs)")
+        else:
+            sel_exc_cu = st.multiselect("按客戶選擇", exc_cu_opts, key="exc_cu")
+        sel_exc_dn = st.multiselect("按 DN 個別加入", exc_dn_opts, key="exc_dn")
+
+    exc_mask = pd.Series([False]*len(df), index=df.index)
+    if sel_exc_cu:
+        exc_mask |= (df["customer_display"].isin(sel_exc_cu) & (df["work_status"]=="已包待出_GO"))
+    if sel_exc_dn and dn_col:
+        exc_mask |= (df[dn_col].astype(str).isin(sel_exc_dn) & (df["work_status"]=="已包待出_GO"))
+
+    exc_rows = df[exc_mask & ~df.index.isin(print_df.index)].copy()
+    if len(exc_rows):
+        exc_rows["exc_flag"] = "手動加入"
+        print_df = pd.concat([print_df, exc_rows])
+
     po = {"P1":0,"P2":1,"P3":2,"P4":3,"P5":4,"P6":5,"P7":6}
     print_df["_po"] = print_df["priority"].map(po).fillna(9)
     print_df = print_df.sort_values(["_po","days_to_kpi","customer_display"])
@@ -636,12 +678,16 @@ elif page == "\U0001f5a8 CS Print List":
 
     pcols_raw = [dn_col, sp_col, etd_col, "DN Created Date/Time", "New CRSD",
                  "customer_display", box_col, route_col, dst_col, acct_col,
-                 "work_status","priority","dispatch_rule_display","sp_display","effective_ship_date"]
+                 "work_status","priority","dispatch_rule_display","cip_direct",
+                 "sp_display","effective_ship_date","exc_flag"]
     seen_p = set()
     pcols = [c for c in pcols_raw if c and c in print_df.columns and not (c in seen_p or seen_p.add(c))]
 
     def _sp2(row):
-        ws = row.get("work_status","")
+        ws  = row.get("work_status","")
+        exc = row.get("exc_flag","") == "手動加入"
+        if exc:
+            return ["background-color:#FFF3CD;color:#856404"]*len(row)
         if ws=="已包待出_X":
             return ["background-color:#FCEBEB;color:#A32D2D"]*len(row)
         if ws=="已包待出_GO":
