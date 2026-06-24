@@ -611,17 +611,18 @@ elif page == "\U0001f5a8 CS Print List":
         show_x = st.checkbox("包含 X 待授權（標注警示）", value=True)
 
     if show_mode == "今日 Dispatch 可出":
-        mp    = df["dispatch_today"] & (df["work_status"]=="已包待出_GO")
+        # Use effective_ship_date <= today (same logic as Dashboard "今天必出")
+        mp    = (df["days_to_effective"] <= 0) & (df["work_status"]=="已包待出_GO")
         title = f"今日 ({today_w} 星期{wd_cn}) Dispatch — GO 可出"
     elif show_mode == "全部 GO 訂單":
         mp    = df["work_status"]=="已包待出_GO"
         title = "全部 GO 待出訂單"
     else:
-        mp    = df["days_to_kpi"]<=0
+        mp    = df["days_to_effective"] <= 0
         title = f"今日 KPI 到期全部（{today}）"
 
     if show_x:
-        mx       = (df["work_status"]=="已包待出_X")&(df["days_to_kpi"]<=0)
+        mx       = (df["work_status"]=="已包待出_X") & (df["days_to_effective"] <= 0)
         print_df = df[mp|mx].copy()
     else:
         print_df = df[mp].copy()
@@ -671,6 +672,6 @@ elif page == "\U0001f5a8 CS Print List":
         csv_p = print_df[pcols].to_csv(index=False, encoding="utf-8-sig")
         st.download_button("下載出貨清單 CSV",
                            data=csv_p.encode("utf-8-sig"),
-                           file_name=f"cs_print_{today}.csv", mime="text/csv")
+                           file_name=f"cs_print_{date.today()}.csv", mime="text/csv")
     with dl2:
         st.info("Ctrl+P (Windows) / Cmd+P (Mac) 可列印目前畫面")
