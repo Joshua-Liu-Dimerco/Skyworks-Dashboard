@@ -61,6 +61,8 @@ P_COLORS = {
 BKT_ORDER = ["今日必出", "明天", "本週",
              "下週", "中長期"]
 
+_CACHE_VER = "v4"  # increment this to bust st.cache_data when columns change
+
 # ── Display column rename map ──────────────────────────────────────────────
 RENAME_MAP = {
     "customer_display":              "Shipping Incoterms and Customer",
@@ -309,19 +311,24 @@ if not f1 or not f2:
     st.stop()
 
 @st.cache_data(show_spinner="載入資料中…")
-def _load(b1, b2):
+def _load(b1, b2, cache_ver=_CACHE_VER):
     dfs = []
     for b in [b1, b2]:
         dfs.append(pd.read_excel(io.BytesIO(b), sheet_name="Open Delivery Notes", header=1))
     raw = pd.concat(dfs, ignore_index=True)
-    return process_data(raw)  # process inside cache — only runs when files change
+    return process_data(raw)  # process inside cache — only runs when files or version change
 
 df, customer_col = _load(f1.getvalue(), f2.getvalue())
 
 # ── Shared column refs ─────────────────────────────────────────────────────────
 sp_col    = find_col(df, "shipping point", "ship. pt")
 dn_col    = find_col(df, "delivery")
-etd_col   = find_col(df, "etd")
+etd_col   = find_col(df, "etd", "sched. gi", "sched gi", "gi date", "planned gi", "goods issue")
+# Debug: show resolved column names in sidebar (remove after confirming)
+with st.sidebar.expander("欄位對應（Debug）", expanded=False):
+    st.caption(f"ETD col: `{etd_col}`")
+    st.caption(f"TW time col in df: {'DN Created Date/Time(TW time)' in df.columns}")
+    st.caption(f"All columns: {list(df.columns[:8])}")
 box_col   = find_col(df, "件數", "box", "carton", "qty")
 route_col = find_col(df, "route")
 dst_col   = find_col(df, "ship to country", "ship-to country", "dst")
@@ -606,9 +613,8 @@ elif page == "\U0001f50d Detail View":
     dcols = [c for c in [
         sp_col, dn_col, "customer_display",
         "New CRSD", "kpi_date", "effective_ship_date",
-        "days_to_kpi", "days_to_effective",
         "work_status", "priority", "kpi_bucket",
-        "dispatch_rule_display", "cip_direct", "dispatch_today",
+        "dispatch_rule_display", "cip_direct",
         "DN Created Date/Time(TW time)",
         "Picking Status", "Packing Status",
         "sp_display", box_col,
@@ -728,6 +734,7 @@ elif page == "\U0001f5a8 CS Print List":
                  "customer_display", box_col, route_col, dst_col, acct_col,
                  "work_status","priority","dispatch_rule_display","cip_direct",
                  "sp_display","effective_ship_date","exc_flag"]
+    # days_to_kpi / days_to_effective / dispatch_today are hidden from display
     seen_p = set()
     pcols = [c for c in pcols_raw if c and c in print_df.columns and not (c in seen_p or seen_p.add(c))]
 
