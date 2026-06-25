@@ -658,16 +658,14 @@ elif page == "\U0001f5a8 CS Print List":
         "將不在此清單中。請確認已包待出_GO 訂單再安排出貨。"
     )
 
-    ct1, ct2, ct3 = st.columns([2, 1, 1])
+    ct1, ct2 = st.columns([2, 1])
     with ct1:
         show_mode = st.radio(
             "顯示模式",
             ["今日 Dispatch 可出", "全部 GO 訂單", "今日 KPI 全部"],
             horizontal=True)
     with ct2:
-        show_x       = st.checkbox("包含 X 待授權（標注警示）", value=True)
-    with ct3:
-        filter_etd_today = st.checkbox("僅今日 ETD", value=False, key="cs_etd_today")
+        show_x = st.checkbox("包含 X 待授權（標注警示）", value=True)
 
     if show_mode == "今日 Dispatch 可出":
         # Use effective_ship_date <= today (same logic as Dashboard "今天必出")
@@ -686,15 +684,9 @@ elif page == "\U0001f5a8 CS Print List":
     else:
         print_df = df[mp].copy()
 
-    # ── ETD today filter ──────────────────────────────────────────────────────
-    if filter_etd_today and etd_col and etd_col in print_df.columns:
-        def _etd_is_today(v):
-            if pd.isna(v): return False
-            try:
-                return pd.to_datetime(v).date() == today
-            except Exception:
-                return str(v)[:10] == str(today)
-        print_df = print_df[print_df[etd_col].apply(_etd_is_today)]
+    # ETD column = today's date (fixed display value)
+    print_df = print_df.copy()
+    print_df["ETD"] = today
 
     print_df["exc_flag"] = ""
 
@@ -730,7 +722,7 @@ elif page == "\U0001f5a8 CS Print List":
     st.markdown(f"### {title}")
     st.caption(f"共 {len(print_df)} 筆 | 產生時間：{datetime.now().strftime('%Y-%m-%d %H:%M')}")
 
-    pcols_raw = [dn_col, sp_col, etd_col, "DN Created Date/Time(TW time)", "New CRSD",
+    pcols_raw = [dn_col, sp_col, "ETD", "DN Created Date/Time(TW time)", "New CRSD",
                  "customer_display", box_col, route_col, dst_col, acct_col,
                  "work_status","priority","dispatch_rule_display","cip_direct",
                  "sp_display","effective_ship_date","exc_flag"]
