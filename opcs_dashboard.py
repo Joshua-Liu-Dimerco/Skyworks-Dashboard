@@ -61,6 +61,31 @@ P_COLORS = {
 BKT_ORDER = ["今日必出", "明天", "本週",
              "下週", "中長期"]
 
+# ── Display column rename map ──────────────────────────────────────────────
+RENAME_MAP = {
+    "customer_display":              "Shipping Incoterms and Customer",
+    "kpi_date":                      "KPI Date",
+    "effective_ship_date":           "Shipping Date",
+    "days_to_kpi":                   "Days To KPI",
+    "days_to_effective":             "Days To Ship",
+    "work_status":                   "Work Status",
+    "kpi_bucket":                    "KPI Type",
+    "dispatch_rule_display":         "Consult Rule",
+    "cip_direct":                    "CIP Direct",
+    "dispatch_today":                "Dispatch Today",
+    "sp_display":                    "SP Display",
+    "exc_flag":                      "Exception",
+    "DN Created Date/Time(TW time)": "DN Created (TW Time)",
+}
+
+def display_rename(col):
+    """Rename for display: RENAME_MAP overrides, else title-case + strip underscores."""
+    if col in RENAME_MAP:
+        return RENAME_MAP[col]
+    if "_" in col:
+        return col.replace("_", " ").title()
+    return col
+
 # ── Helpers ────────────────────────────────────────────────────────────────────
 def find_col(df, *kws):
     for kw in kws:
@@ -111,6 +136,9 @@ def process_data(raw_df):
     # step 1 – dates
     df["New CRSD"] = pd.to_datetime(df["New CRSD"], errors="coerce").dt.date
     df["DN Created Date/Time"] = pd.to_datetime(df["DN Created Date/Time"], errors="coerce")
+    # Convert source timezone UTC-7 → Taiwan UTC+8 (+15 hours)
+    TW_COL = "DN Created Date/Time(TW time)"
+    df[TW_COL] = df["DN Created Date/Time"] + pd.Timedelta(hours=15)
 
     # step 2 – work status
     def _ws(row):
@@ -160,16 +188,16 @@ def process_data(raw_df):
     df["dispatch_today"] = df.apply(_dispatch_today, axis=1)
     df["today_w"] = today_w
 
-    # step 4 – kpi_date (11:30 cutoff for GO orders)
+    # step 4 – kpi_date (11:30 cutoff, using TW time for comparison)
     def _kpi_date(row):
-        crsd = row["New CRSD"]
-        dn   = row["DN Created Date/Time"]
+        crsd  = row["New CRSD"]
+        dn_tw = row[TW_COL]   # Taiwan UTC+8 time
         if pd.isna(crsd): return crsd
         if (row["work_status"] == "已包待出_GO"
                 and crsd == today
                 and row["dispatch_today"]
-                and pd.notna(dn)
-                and (dn.hour, dn.minute) >= (CUTOFF_HOUR, CUTOFF_MINUTE)):
+                and pd.notna(dn_tw)
+                and (dn_tw.hour, dn_tw.minute) >= (CUTOFF_HOUR, CUTOFF_MINUTE)):
             return next_workday(today)
         return crsd
     df["kpi_date"] = df.apply(_kpi_date, axis=1)
@@ -521,8 +549,9 @@ elif page == "\U0001f50d Detail View":
             d_cu = [dfv] if dfk=="customer" and dfv in cu_opts else []
             sel_cu = st.multiselect("客戶", cu_opts, default=d_cu, key="dv_cu")
 
-            sel_dt = st.checkbox("僅今日 dispatch", value=False, key="dv_dt")
-            sel_xonly = st.checkbox("僅 SP=X", value=False, key="dv_x")
+            sel_dt     = st.checkbox("僅今日 dispatch", value=False, key="dv_dt")
+            sel_xonly  = st.checkbox("僅 SP=X",        value=False, key="dv_x")
+            sel_goonly = st.checkbox("僅 SP=GO",       value=False, key="dv_go")
 
         with fc4:
             kpi_dates = df["kpi_date"].dropna()
@@ -542,6 +571,7 @@ elif page == "\U0001f50d Detail View":
     if sel_cu:             mask &= df["customer_display"].isin(sel_cu)
     if sel_dt:             mask &= df["dispatch_today"]
     if sel_xonly:          mask &= df["Special Processing"].astype(str).str.strip()=="X"
+    if sel_goonly:         mask &= df["Special Processing"].astype(str).str.strip()=="GO"
     if dn_search and dn_col:
         mask &= df[dn_col].astype(str).str.contains(dn_search.strip(), case=False, na=False)
     if date_filtered:
@@ -579,6 +609,7 @@ elif page == "\U0001f50d Detail View":
         "days_to_kpi", "days_to_effective",
         "work_status", "priority", "kpi_bucket",
         "dispatch_rule_display", "cip_direct", "dispatch_today",
+        "DN Created Date/Time(TW time)",
         "Picking Status", "Packing Status",
         "sp_display", box_col,
     ] if c and c in filtered.columns]
@@ -589,10 +620,15 @@ elif page == "\U0001f50d Detail View":
     def _cp(v):
         c = P_COLORS.get(v,"");  return f"color:{c};font-weight:bold" if c else ""
 
-    _style = filtered[dcols].style.map(_cws, subset=["work_status"]).map(_cp, subset=["priority"])
+    _display = filtered[dcols].rename(columns=display_rename)
+    _ws_col = display_rename("work_status")
+    _p_col  = display_rename("priority")
+    _style  = _display.style
+    if _ws_col in _display.columns: _style = _style.map(_cws, subset=[_ws_col])
+    if _p_col  in _display.columns: _style = _style.map(_cp,  subset=[_p_col])
     st.dataframe(_style, use_container_width=True, height=520)
 
-    csv = filtered[dcols].to_csv(index=False, encoding="utf-8-sig")
+    csv = filtered[dcols].rename(columns=display_rename).to_csv(index=False, encoding="utf-8-sig")
     st.download_button(
         "下載 CSV",
         data=csv.encode("utf-8-sig"),
@@ -616,14 +652,16 @@ elif page == "\U0001f5a8 CS Print List":
         "將不在此清單中。請確認已包待出_GO 訂單再安排出貨。"
     )
 
-    ct1, ct2 = st.columns([2,1])
+    ct1, ct2, ct3 = st.columns([2, 1, 1])
     with ct1:
         show_mode = st.radio(
             "顯示模式",
             ["今日 Dispatch 可出", "全部 GO 訂單", "今日 KPI 全部"],
             horizontal=True)
     with ct2:
-        show_x = st.checkbox("包含 X 待授權（標注警示）", value=True)
+        show_x       = st.checkbox("包含 X 待授權（標注警示）", value=True)
+    with ct3:
+        filter_etd_today = st.checkbox("僅今日 ETD", value=False, key="cs_etd_today")
 
     if show_mode == "今日 Dispatch 可出":
         # Use effective_ship_date <= today (same logic as Dashboard "今天必出")
@@ -641,6 +679,16 @@ elif page == "\U0001f5a8 CS Print List":
         print_df = df[mp|mx].copy()
     else:
         print_df = df[mp].copy()
+
+    # ── ETD today filter ──────────────────────────────────────────────────────
+    if filter_etd_today and etd_col and etd_col in print_df.columns:
+        def _etd_is_today(v):
+            if pd.isna(v): return False
+            try:
+                return pd.to_datetime(v).date() == today
+            except Exception:
+                return str(v)[:10] == str(today)
+        print_df = print_df[print_df[etd_col].apply(_etd_is_today)]
 
     print_df["exc_flag"] = ""
 
@@ -676,27 +724,32 @@ elif page == "\U0001f5a8 CS Print List":
     st.markdown(f"### {title}")
     st.caption(f"共 {len(print_df)} 筆 | 產生時間：{datetime.now().strftime('%Y-%m-%d %H:%M')}")
 
-    pcols_raw = [dn_col, sp_col, etd_col, "DN Created Date/Time", "New CRSD",
+    pcols_raw = [dn_col, sp_col, etd_col, "DN Created Date/Time(TW time)", "New CRSD",
                  "customer_display", box_col, route_col, dst_col, acct_col,
                  "work_status","priority","dispatch_rule_display","cip_direct",
                  "sp_display","effective_ship_date","exc_flag"]
     seen_p = set()
     pcols = [c for c in pcols_raw if c and c in print_df.columns and not (c in seen_p or seen_p.add(c))]
 
+    _ws_r   = display_rename("work_status")
+    _exc_r  = display_rename("exc_flag")
+    _dkpi_r = display_rename("days_to_kpi")
+
     def _sp2(row):
-        ws  = row.get("work_status","")
-        exc = row.get("exc_flag","") == "手動加入"
+        ws  = row.get(_ws_r, "")
+        exc = row.get(_exc_r, "") == "手動加入"
         if exc:
             return ["background-color:#FFF3CD;color:#856404"]*len(row)
         if ws=="已包待出_X":
             return ["background-color:#FCEBEB;color:#A32D2D"]*len(row)
         if ws=="已包待出_GO":
             return ["background-color:#E6F1FB"]*len(row)
-        if row.get("days_to_kpi",999)<=0:
+        if row.get(_dkpi_r, 999)<=0:
             return ["background-color:#FFF5F5"]*len(row)
         return [""]*len(row)
 
-    st.dataframe(print_df[pcols].style.apply(_sp2,axis=1), use_container_width=True, height=480)
+    _print_display = print_df[pcols].rename(columns=display_rename)
+    st.dataframe(_print_display.style.apply(_sp2, axis=1), use_container_width=True, height=480)
 
     st.markdown("#### 客戶彙總")
     agg_d = {
@@ -710,12 +763,12 @@ elif page == "\U0001f5a8 CS Print List":
         print_df.groupby("customer_display").agg(**agg_d)
         .sort_values("DNs",ascending=False).reset_index()
     )
-    st.dataframe(summary, use_container_width=True)
+    st.dataframe(summary.rename(columns=display_rename), use_container_width=True)
 
     st.markdown("---")
     dl1, dl2 = st.columns(2)
     with dl1:
-        csv_p = print_df[pcols].to_csv(index=False, encoding="utf-8-sig")
+        csv_p = print_df[pcols].rename(columns=display_rename).to_csv(index=False, encoding="utf-8-sig")
         st.download_button("下載出貨清單 CSV",
                            data=csv_p.encode("utf-8-sig"),
                            file_name=f"cs_print_{date.today()}.csv", mime="text/csv")
